@@ -1,0 +1,111 @@
+apply plugin: 'com.android.application'
+
+android {
+    compileSdkVersion 29
+    buildToolsVersion "29.0.2"
+
+    defaultConfig {
+        applicationId "top.canyie.riru_isolatedmagiskhider"
+        minSdkVersion 24
+        targetSdkVersion 29
+        versionCode 1
+        versionName "1.0"
+
+        externalNativeBuild {
+            cmake {
+                cFlags "-Wall -Wextra -Werror -fvisibility=hidden"
+                cppFlags "-std=c++17"
+                arguments "-DRIRU_NEW_MODULE_API_VERSION=$rootProject.ext.riruNewApiVersion",
+                        "-DRIRU_MODULE_VERSION_CODE=$rootProject.ext.versionCode",
+                        "-DRIRU_MODULE_VERSION_NAME:STRING=\"$rootProject.ext.versionName\""
+            }
+        }
+        ndk {
+            moduleName "riru_isolatedmagiskhider"
+            abiFilters  "arm64-v8a", "armeabi-v7a", "x86_64", "x86"
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path "src/main/cpp/CMakeLists.txt"
+            version "3.10.2"
+        }
+    }
+}
+
+dependencies {
+}
+
+def moduleProp = [
+        id: 'riru_isolatedmagiskhider',
+        name: 'Riru-IsolatedMagiskHider',
+        author: 'canyie',
+        version: rootProject.ext.versionName,
+        versionCode: rootProject.ext.versionCode,
+        description: 'Enable Magisk hide for isolated processes.',
+        minMagisk: rootProject.ext.minMagisk,
+        api: rootProject.ext.riruApiVersion
+]
+
+def tempPath = "$buildDir/intermediates/magisk"
+def tempTemplatePath = "$tempPath/template"
+def nativeDir = "$tempTemplatePath/system/"
+def nativeDirX86 = "$tempTemplatePath/system_x86/"
+def nativeAbiToSystemDirMap = ['armeabi-v7a': 'lib', 'arm64-v8a': 'lib64']
+def nativeAbiToSystemDirMapX86 = ['x86': 'lib', 'x86_64': 'lib64']
+def nativeLibName = 'libriru_isolatedmagiskhider.so'
+def releasePath = "$buildDir/outputs/magisk"
+
+task copyMagiskTemplate(type: Copy) {
+    from file("$rootDir/template")
+    into file(tempTemplatePath)
+
+    inputs.properties moduleProp
+    doLast {
+        file("$tempTemplatePath/module.prop").withWriter('utf-8') { writer ->
+            moduleProp.each { name, value -> writer.write("$name=$value\n") }
+        }
+    }
+}
+
+task copyNativeLibs() {
+    doLast {
+        stripReleaseDebugSymbols.outputs.files.each { baseInputDir ->
+            nativeAbiToSystemDirMap.each { origin, to ->
+                copy {
+                    from file("$baseInputDir/lib/$origin/$nativeLibName")
+                    into file("$nativeDir/$to")
+                }
+            }
+
+            nativeAbiToSystemDirMapX86.each { origin, to ->
+                copy {
+                    from file("$baseInputDir/lib/$origin/$nativeLibName")
+                    into file("$nativeDirX86/$to")
+                }
+            }
+        }
+    }
+}
+
+task zipMagiskFiles(type: Zip) {
+    from file(tempTemplatePath)
+    destinationDir file(releasePath)
+    baseName 'Riru-IsolatedMagiskHider'
+}
+
+task assembleMagiskRelease(type: GradleBuild, dependsOn: build) {
+    tasks = [
+            'copyMagiskTemplate',
+            'copyNativeLibs',
+            'zipMagiskFiles'
+    ]
+}
