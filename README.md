@@ -1,12 +1,17 @@
 # Riru-IsolatedMagiskHider
 ## Background
-Many applications now detect Magisk for security, Magisk provided "Magisk Hide" to prevent detection, but isolated processes will be skipped. This module enables the feature for these processes.
+Many applications now detect Magisk for security, Magisk provided "Magisk Hide" to prevent detection, but isolated processes will be skipped. This module tries to enable the feature for these processes.
 
 ## Requirement
 Rooted Android 7.0+ devices with Magisk and [Riru](https://github.com/RikkaApps/Riru).
 
 ## Build
 Run gradle task :module:assembleMagiskRelease from Android Studio or command line, magisk module zip will be saved to module/build/outputs/magisk/.
+
+## Known Issues
+- Since Android 11, Google has removed /sbin and Magisk will generate random directory to replace it. Now this module hardcoded this path in code, so it may not work in Android 11.
+
+- Some Magisk created mountpoint cannot be unmounted because of SELinux, errno=13 (Permission denied).
 
 ## Discussion
 - [QQ Group: 949888394](https://shang.qq.com/wpa/qunwpa?idkey=25549719b948d2aaeb9e579955e39d71768111844b370fcb824d43b9b20e1c04)
