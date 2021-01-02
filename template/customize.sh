@@ -23,7 +23,12 @@ else
 fi
 
 ui_print "- Extracting module files"
-unzip -o $ZIPFILE module.prop uninstall.sh -d $MODPATH >&2 || abort "! Can't extract module files: $?"
+unzip -o $ZIPFILE module.prop uninstall.sh sepolicy.rule post-fs-data.sh -d $MODPATH >&2 || abort "! Can't extract module files: $?"
+
+if [ $MAGISK_VER_CODE -lt 20200 ]; then
+  ui_print "- Removing sepolicy.rule for Magisk $MAGISK_VER"
+  rm $MODPATH/sepolicy.rule
+fi
 
 if [ $ARCH = "x86" ] || [ $ARCH = "x64" ]; then
   ui_print "- Extracting x86 libraries"
@@ -41,7 +46,7 @@ fi
 
 RIRU_MODULE_PATH="$RIRU_PATH/modules/$RIRU_MODULE_ID"
 
-ui_print "- Extracting riru files to $RIRU_MODULE_PATH"
+ui_print "- Extracting riru files"
 
 [ -d $RIRU_MODULE_PATH ] || mkdir -p $RIRU_MODULE_PATH || abort "! Can't create $RIRU_MODULE_PATH: $?"
 cp -f $MODPATH/module.prop $RIRU_MODULE_PATH/module.prop || abort "! Can't copy module.prop to $RIRU_MODULE_PATH: $?"

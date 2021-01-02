@@ -8,6 +8,7 @@
 #include <mntent.h>
 #include <sys/mount.h>
 #include <unistd.h>
+#include <errno.h>
 #include "magiskhide.h"
 #include "../../log.h"
 
@@ -29,9 +30,10 @@ void parse_mnt(const char *file, const function<bool(mntent*)> &fn) {
 }
 
 static void lazy_unmount(const char* mountpoint) {
-    LOGD("unmounting %s", mountpoint);
     if (umount2(mountpoint, MNT_DETACH) != -1)
         LOGD("hide_policy: Unmounted (%s)\n", mountpoint);
+    else
+        LOGE("hide_policy: can't unmount %s: %s", mountpoint, strerror(errno));
 }
 
 // IsolatedMagiskHider changed: don't pass pid, the target process is always myself.
@@ -43,8 +45,9 @@ void hide_unmount() {
     vector<string> targets;
 
     // Unmount dummy skeletons and /sbin links
+//    targets.push_back(MAGISKTMP);
     // FIXME The MAGISKTMP is randomly generated on Android 11, it should be applied via $(magisk --path)
-    //targets.push_back(MAGISKTMP);
+
     if (access("/sbin", R_OK) == 0) {
         targets.push_back("/sbin");
     }
@@ -61,20 +64,19 @@ strncmp(mentry->mnt_dir, "/" #dir, sizeof("/" #dir) - 1) == 0)
 #undef TMPFS_MNT
 
     reverse(targets.begin(), targets.end());
-
     for (auto &s : targets)
         lazy_unmount(s.data());
     targets.clear();
 
     // Unmount all Magisk created mounts
     parse_mnt("/proc/self/mounts", [&](mntent *mentry) {
-        if (strstr(mentry->mnt_fsname, BLOCKDIR))
+        if (strstr(mentry->mnt_fsname, BLOCKDIR)) {
             targets.emplace_back(mentry->mnt_dir);
+        }
         return true;
     });
 
     reverse(targets.begin(), targets.end());
-
     for (auto &s : targets)
         lazy_unmount(s.data());
 }
