@@ -37,7 +37,7 @@ EXPORT int shouldSkipUid(int uid) { return false; }
 
 bool IsIsolated(int uid) {
     int app_id = uid % 100000;
-    return app_id >= 99000 && app_id <= 99999;
+    return app_id >= 90000 && app_id <= 99999;
 }
 
 // Before Riru v22
