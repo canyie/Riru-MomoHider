@@ -4,4 +4,4 @@ MODDIR=${0%/*}
 
 [ -f $MODDIR/sepolicy.rule ] && exit 0
 
-magiskpolicy --live "allow zygote labeledfs filesystem { unmount }"
+magiskpolicy --live "allow zygote * filesystem { unmount }"

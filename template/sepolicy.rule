@@ -1,1 +1,1 @@
-allow zygote labeledfs filesystem { unmount }
+allow zygote * filesystem { unmount }
