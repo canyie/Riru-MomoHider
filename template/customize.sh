@@ -2,6 +2,9 @@ RIRU_OLD_PATH="/data/misc/riru"
 RIRU_NEW_PATH="/data/adb/riru"
 RIRU_MODULE_ID="isolatedmagiskhider"
 
+ui_print "- This is an open source project"
+ui_print "- You can find its source code at https://github.com/canyie/Riru-IsolatedMagiskHider"
+
 if [ $ARCH != "arm" ] && [ $ARCH != "arm64" ] && [ $ARCH != "x86" ] && [ $ARCH != "x64" ]; then
   abort "! Unsupported platform: $ARCH"
 else

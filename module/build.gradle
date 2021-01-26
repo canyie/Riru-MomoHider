@@ -50,7 +50,7 @@ def moduleProp = [
         author: 'canyie',
         version: rootProject.ext.versionName,
         versionCode: rootProject.ext.versionCode,
-        description: 'A Riru module tries to enable Magisk hide for isolated processes.',
+        description: 'A Riru module tries to enable Magisk hide for isolated processes. You can find its source at https://github.com/canyie/Riru-IsolatedMagiskHider',
         minMagisk: rootProject.ext.minMagisk,
         api: rootProject.ext.riruApiVersion
 ]
