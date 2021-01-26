@@ -7,6 +7,7 @@
 #include <sched.h>
 #include <errno.h>
 #include <pthread.h>
+#include <cstdlib>
 #include "log.h"
 #include "external/riru/riru.h"
 #include "external/magisk/magiskhide.h"
@@ -16,10 +17,12 @@ int riru_api_version = 0;
 RiruApiV9* riru_api_v9;
 }
 
-bool creating_isolated_process = false;
+int uid_ = -1;
+bool child_zygote_ = false;
+bool forked_ = false;
 
-void OnForkIsolatedProcess() {
-    LOGI("Created isolated process %d, starting magisk hide...", getpid());
+void StartHide() {
+    LOGI("Created isolated process or app zygote %d, starting magisk hide...", getpid());
     if (unshare(CLONE_NEWNS) == -1) {
         LOGE("Failed to create new namespace for current process: %s (%d)", strerror(errno), errno);
         return;
@@ -29,27 +32,31 @@ void OnForkIsolatedProcess() {
 }
 
 void OnNewProcess() {
-    if (creating_isolated_process)
-        OnForkIsolatedProcess();
+    if (forked_) return;
+    forked_ = true;
+
+    int app_id = uid_ % 100000;
+    if (app_id >= 90000 // isolated process
+          || (child_zygote_ && app_id >= 10000 && app_id <= 19999)) // app zygote
+        StartHide();
 }
+
 
 EXPORT int shouldSkipUid(int uid) { return false; }
 
-bool IsIsolated(int uid) {
-    int app_id = uid % 100000;
-    return app_id >= 90000 && app_id <= 99999;
-}
-
 // Before Riru v22
 EXPORT void nativeForkAndSpecializePre(JNIEnv* env, jclass, jint* uid_ptr, jint* gid_ptr,
-                                jintArray*, jint*, jobjectArray*, jint*, jstring*,
-                                jstring*, jintArray*, jintArray*,
-                                jboolean*, jstring*, jstring*, jboolean*, jobjectArray*) {
-    creating_isolated_process = IsIsolated(*uid_ptr);
+                                       jintArray*, jint*, jobjectArray*, jint*, jstring*,
+                                       jstring*, jintArray*, jintArray*,
+                                       jboolean* is_child_zygote, jstring*, jstring*, jboolean*,
+                                       jobjectArray*) {
+    uid_ = *uid_ptr;
+    child_zygote_ = *is_child_zygote;
 }
 
 EXPORT int nativeForkAndSpecializePost(JNIEnv*, jclass, jint result) {
-    creating_isolated_process = false;
+    uid_ = -1;
+    child_zygote_ = false;
     return 0;
 }
 
@@ -65,11 +72,13 @@ static void forkAndSpecializePre(
         jintArray *fdsToClose, jintArray *fdsToIgnore, jboolean *is_child_zygote,
         jstring *instructionSet, jstring *appDataDir, jboolean *isTopApp, jobjectArray *pkgDataInfoList,
         jobjectArray *whitelistedDataInfoList, jboolean *bindMountAppDataDirs, jboolean *bindMountAppStorageDirs) {
-    creating_isolated_process = IsIsolated(*_uid);
+    uid_ = *_uid;
+    child_zygote_ = *is_child_zygote;
 }
 
 static void forkAndSpecializePost(JNIEnv*, jclass, jint res) {
-    creating_isolated_process = false;
+    uid_ = -1;
+    child_zygote_ = false;
 }
 
 /*
