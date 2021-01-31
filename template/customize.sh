@@ -1,6 +1,7 @@
 RIRU_OLD_PATH="/data/misc/riru"
 RIRU_NEW_PATH="/data/adb/riru"
 RIRU_MODULE_ID="isolatedmagiskhider"
+DATA_DIR="/data/misc/isolatedmagiskhider/"
 
 ui_print "- This is an open source project"
 ui_print "- You can find its source code at https://github.com/canyie/Riru-IsolatedMagiskHider"
@@ -54,5 +55,9 @@ ui_print "- Extracting riru files"
 [ -d $RIRU_MODULE_PATH ] || mkdir -p $RIRU_MODULE_PATH || abort "! Can't create $RIRU_MODULE_PATH: $?"
 cp -f $MODPATH/module.prop $RIRU_MODULE_PATH/module.prop || abort "! Can't copy module.prop to $RIRU_MODULE_PATH: $?"
 
+ui_print "- Preparing data directory"
+[ -d $DATA_DIR ] || mkdir -p $DATA_DIR || abort "! Can't create $DATA_DIR"
+
 ui_print "- Setting permissions"
 set_perm_recursive $MODPATH 0 0 0755 0644
+set_perm_recursive $DATA_DIR 1000 1000 0700 0600 u:object_r:system_data_file:s0
