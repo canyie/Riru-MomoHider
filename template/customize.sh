@@ -27,7 +27,7 @@ else
 fi
 
 ui_print "- Extracting module files"
-unzip -o $ZIPFILE module.prop uninstall.sh sepolicy.rule post-fs-data.sh -d $MODPATH >&2 || abort "! Can't extract module files: $?"
+unzip -o $ZIPFILE module.prop uninstall.sh sepolicy.rule post-fs-data.sh service.sh -d $MODPATH >&2 || abort "! Can't extract module files: $?"
 
 if [ $MAGISK_VER_CODE -lt 20200 ]; then
   ui_print "- Removing sepolicy.rule for Magisk $MAGISK_VER"
