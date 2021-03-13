@@ -8,6 +8,7 @@
 #include <errno.h>
 #include <pthread.h>
 #include <cstdlib>
+#include <sys/stat.h>
 #include "log.h"
 #include "external/xhook/xhook.h"
 #include "external/riru/riru.h"
@@ -20,31 +21,101 @@ int riru_api_version = 0;
 RiruApiV9* riru_api_v9;
 }
 
+const char* magisk_tmp_ = nullptr;
+struct stat zygote_stat_;
 bool magic_handle_app_zygote_ = false;
-int app_id_ = -1;
-bool child_zygote_ = false;
+bool in_child_ = false;
+bool isolated_ = false;
+bool app_zygote_ = false;
 
 pid_t (*orig_fork)() = nullptr;
+int (*orig_unshare)(int) = nullptr;
 
-bool IsApp() {
-    return app_id_ >= 10000 && app_id_ <= 19999;
+const char* ReadMagiskTmp() {
+    constexpr const char* path = "/data/misc/isolatedmagiskhider/magisk_tmp";
+    const char* magisk_tmp = "/sbin";
+    FILE* fp = fopen(path, "re");
+    if (fp) {
+        char tmp[PATH_MAX];
+        fseek(fp, 0, SEEK_END);
+        long size = ftell(fp);
+        rewind(fp);
+
+        if (size == fread(tmp, 1, static_cast<size_t>(size), fp)) {
+            magisk_tmp = strdup(tmp);
+        } else {
+            LOGE("read magisk tmp failed: %s", strerror(errno));
+        }
+        fclose(fp);
+    } else {
+        LOGE("open magisk tmp failed: %s", strerror(errno));
+    }
+    return magisk_tmp;
 }
 
-bool IsIsolated() {
-    return app_id_ >= 90000;
+void EnsureSeparatedNamespace(jint* mountMode) {
+    if (*mountMode == 0) {
+        LOGI("Changed mount mode from MOUNT_EXTERNAL_NONE to MOUNT_EXTERNAL_DEFAULT");
+        *mountMode = 1;
+    }
 }
 
-bool IsAppZygote() {
-    return child_zygote_ && (IsApp() || IsIsolated());
+bool IsApp(int app_id) {
+    return app_id >= 10000 && app_id <= 19999;
+}
+
+void InitProcessState(int uid, bool is_child_zygote) {
+    int app_id = uid % 100000;
+    isolated_ = app_id >= 90000;
+    app_zygote_ = is_child_zygote && (IsApp(app_id) || isolated_);
+}
+
+void ClearProcessState() {
+    isolated_ = false;
+    app_zygote_ = false;
+}
+
+bool RegisterHook(const char* name, void* replace, void** backup) {
+    int ret = xhook_register(".*\\libandroid_runtime.so$", name, replace, backup);
+    if (ret != 0) {
+        LOGE("Failed to hook %s", name);
+        return true;
+    }
+    return false;
+}
+
+void ClearHooks() {
+    xhook_enable_debug(1);
+    xhook_enable_sigsegv_protection(0);
+    bool failed = false;
+#define UNHOOK(NAME) \
+failed = failed || RegisterHook(#NAME, reinterpret_cast<void*>(orig_##NAME), nullptr)
+
+    UNHOOK(fork);
+    UNHOOK(unshare);
+#undef UNHOOK
+
+    if (failed || xhook_refresh(0)) {
+        LOGE("Failed to clear hooks!");
+        return;
+    }
+    xhook_clear();
+}
+
+void ReadSelfNs(struct stat* st) {
+    stat("/proc/self/ns/mnt", st);
 }
 
 void StartHide() {
     LOGI("Created isolated process or app zygote %d, starting magisk hide...", getpid());
-    if (unshare(CLONE_NEWNS) == -1) {
-        LOGE("Failed to create new namespace for current process: %s (%d)", strerror(errno), errno);
+    struct stat self_stat;
+    ReadSelfNs(&self_stat);
+    if (self_stat.st_ino == zygote_stat_.st_ino && self_stat.st_dev == zygote_stat_.st_dev) {
+        // This should not happen, we changed mount mode to ensure ns is separated
+        LOGE("Skip hide this process because ns is not separated from zygote");
         return;
     }
-    hide_unmount();
+    hide_unmount(magisk_tmp_);
     LOGI("Unmounted magisk file system.");
 }
 
@@ -65,11 +136,9 @@ pid_t MagicHandleAppZygote() {
 }
 
 pid_t ForkReplace() {
-    bool isolated = IsIsolated();
-    bool app_zygote = IsAppZygote();
     int read_fd = -1, write_fd = -1;
 
-    if (app_zygote && magic_handle_app_zygote_) {
+    if (app_zygote_ && magic_handle_app_zygote_) {
         int pipe_fd[2];
         if (pipe(pipe_fd) == -1) {
             LOGE("Failed to create pipe for new app zygote: %s", strerror(errno));
@@ -89,10 +158,8 @@ pid_t ForkReplace() {
             close(write_fd);
     } else if (pid == 0) {
         // child process
-
-        if (isolated || app_zygote)
-            StartHide();
-
+        // Do not hide here because the namespace not separated
+        in_child_ = true;
         if (read_fd != -1 && write_fd != -1) {
             close(read_fd);
             pid_t new_pid = MagicHandleAppZygote();
@@ -102,15 +169,6 @@ pid_t ForkReplace() {
             write(write_fd, buf, 15);
             close(write_fd);
         }
-
-        // Clean up
-        void* origin = reinterpret_cast<void*>(orig_fork);
-        bool success = xhook_register(".*\\libandroid_runtime.so$", "fork", origin, nullptr) == 0
-                && xhook_refresh(0) == 0;
-        if (success)
-            xhook_clear();
-        else
-            LOGE("Failed to clean up hooks");
     } else {
         // parent process
         if (read_fd != -1 && write_fd != -1) {
@@ -125,40 +183,61 @@ pid_t ForkReplace() {
     return pid;
 }
 
+int UnshareReplace(int flags) {
+    int res = orig_unshare(flags);
+    if (res == -1) return res;
+    if (!in_child_) return res;
+    if (flags & CLONE_NEWNS) {
+        // Start hiding before dropping any privileges
+        if (isolated_ || app_zygote_)
+            StartHide();
+        ClearHooks();
+    }
+    return res;
+}
+
+void RegisterHooks() {
+    xhook_enable_debug(1);
+    xhook_enable_sigsegv_protection(0);
+    bool failed = false;
+#define HOOK(NAME, REPLACE) \
+failed = failed || RegisterHook(#NAME, reinterpret_cast<void*>(REPLACE), reinterpret_cast<void**>(&orig_##NAME))
+
+    HOOK(fork, ForkReplace);
+    HOOK(unshare, UnshareReplace);
+#undef HOOK
+
+    if (failed || xhook_refresh(0)) {
+        LOGE("Failed to register hooks!");
+        return;
+    }
+    xhook_clear();
+}
+
 EXPORT int shouldSkipUid(int uid) { return false; }
 
 // Before Riru v22
 EXPORT void nativeForkAndSpecializePre(JNIEnv* env, jclass, jint* uid_ptr, jint* gid_ptr,
-                                       jintArray*, jint*, jobjectArray*, jint*, jstring*,
-                                       jstring*, jintArray*, jintArray*,
+                                       jintArray*, jint*, jobjectArray*, jint* mount_external,
+                                       jstring*, jstring*, jintArray*, jintArray*,
                                        jboolean* is_child_zygote, jstring*, jstring*, jboolean*,
                                        jobjectArray*) {
-    int uid = *uid_ptr;
-    app_id_ = uid % 100000;
-    child_zygote_ = *is_child_zygote;
+    InitProcessState(*uid_ptr, *is_child_zygote);
+    EnsureSeparatedNamespace(mount_external);
 }
 
 EXPORT int nativeForkAndSpecializePost(JNIEnv*, jclass, jint result) {
-    app_id_ = -1;
-    child_zygote_ = false;
+    ClearProcessState();
     return 0;
 }
 
 EXPORT void onModuleLoaded() {
+    magisk_tmp_ = ReadMagiskTmp();
+    LOGI("Magisk temp path is %s", magisk_tmp_);
+    ReadSelfNs(&zygote_stat_);
     LOGI("Registering fork monitor");
-    xhook_enable_debug(1);
-    xhook_enable_sigsegv_protection(0);
-    void* replace = reinterpret_cast<void*>(ForkReplace);
-    void** backup = reinterpret_cast<void**>(&orig_fork);
-    bool success = xhook_register(".*\\libandroid_runtime.so$", "fork", replace, backup) == 0
-            && xhook_refresh(0) == 0;
-    if (success)
-        xhook_clear();
-    else
-        LOGE("Failed to hook fork");
-
+    RegisterHooks();
     magic_handle_app_zygote_ = access(kMagicHandleAppZygote, F_OK) == 0;
-
 }
 
 // After Riru v22
@@ -170,14 +249,12 @@ static void forkAndSpecializePre(
         jobjectArray* pkgDataInfoList,
         jobjectArray* whitelistedDataInfoList, jboolean* bindMountAppDataDirs,
         jboolean* bindMountAppStorageDirs) {
-    int uid = *_uid;
-    app_id_ = uid % 100000;
-    child_zygote_ = *is_child_zygote;
+    InitProcessState(*_uid, *is_child_zygote);
+    EnsureSeparatedNamespace(mountExternal);
 }
 
 static void forkAndSpecializePost(JNIEnv*, jclass, jint res) {
-    app_id_ = -1;
-    child_zygote_ = false;
+    ClearProcessState();
 }
 
 /*
