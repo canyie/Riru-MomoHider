@@ -30,6 +30,10 @@ void parse_mnt(const char *file, const function<void(mntent*)> &fn) {
 }
 
 static void lazy_unmount(const char* mountpoint) {
+    if (strcmp(mountpoint, "/system/framework/XposedBridge.jar") == 0) {
+        LOGE("Skip unmount XposedBridge.jar because the rovo89's Xposed framework can't handle this case.");
+        return;
+    }
     if (umount2(mountpoint, MNT_DETACH) != -1)
         LOGD("hide_policy: Unmounted (%s)\n", mountpoint);
     else
