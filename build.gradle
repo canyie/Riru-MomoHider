@@ -33,5 +33,5 @@ ext {
     versionName = '0.0.2'
     minMagisk = 19000
     riruApiVersion = 5 // For Riru v21
-    riruNewApiVersion = 9 // For Riru v22+
+    riruNewApiVersion = 25 // For Riru v22+
 }

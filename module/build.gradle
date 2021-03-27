@@ -57,8 +57,8 @@ def moduleProp = [
 
 def tempPath = "$buildDir/intermediates/magisk"
 def tempTemplatePath = "$tempPath/template"
-def nativeDir = "$tempTemplatePath/system/"
-def nativeDirX86 = "$tempTemplatePath/system_x86/"
+def nativeDir = "$tempTemplatePath/riru/"
+def nativeDirX86 = "$tempTemplatePath/riru_x86/"
 def nativeAbiToSystemDirMap = ['armeabi-v7a': 'lib', 'arm64-v8a': 'lib64']
 def nativeAbiToSystemDirMapX86 = ['x86': 'lib', 'x86_64': 'lib64']
 def nativeLibName = 'libriru_isolatedmagiskhider.so'

@@ -2,6 +2,7 @@ RIRU_OLD_PATH="/data/misc/riru"
 RIRU_NEW_PATH="/data/adb/riru"
 RIRU_MODULE_ID="isolatedmagiskhider"
 DATA_DIR="/data/misc/isolatedmagiskhider/"
+RIRU_API=0
 
 ui_print "- This is an open source project"
 ui_print "- You can find its source code at https://github.com/canyie/Riru-IsolatedMagiskHider"
@@ -18,7 +19,26 @@ else
   ui_print "- Android API level: $API"
 fi
 
-if [ -f $RIRU_OLD_PATH/api_version.new ] || [ -f $RIRU_OLD_PATH/api_version ]; then
+if [ "$MAGISK_VER_CODE" -ge 21000 ]; then
+  MAGISK_CURRENT_RIRU_MODULE_PATH=$(magisk --path)/.magisk/modules/riru-core
+else
+  MAGISK_CURRENT_RIRU_MODULE_PATH=/sbin/.magisk/modules/riru-core
+fi
+
+if [ -f $MAGISK_CURRENT_RIRU_MODULE_PATH/util_functions.sh ]; then
+  # Riru V24+, api version is provided in util_functions.sh
+  # I don't like this, but I can only follow this change
+  RIRU_PATH=$MAGISK_CURRENT_RIRU_MODULE_PATH
+  ui_print "- Load $MAGISK_CURRENT_RIRU_MODULE_PATH/util_functions.sh"
+  # shellcheck disable=SC1090
+  . $MAGISK_CURRENT_RIRU_MODULE_PATH/util_functions.sh
+
+  # Pre Riru 25, as a old module
+  if [ "$RIRU_API" -lt 25 ]; then
+    ui_print "- Riru API version $RIRU_API is lower than v25"
+    RIRU_PATH=$RIRU_NEW_PATH
+  fi
+elif [ -f $RIRU_OLD_PATH/api_version.new ] || [ -f $RIRU_OLD_PATH/api_version ]; then
   RIRU_PATH=$RIRU_OLD_PATH
 elif [ -f $RIRU_NEW_PATH/api_version.new ] || [ -f $RIRU_NEW_PATH/api_version ]; then
   RIRU_PATH=$RIRU_NEW_PATH
@@ -26,34 +46,38 @@ else
   abort "! Requirement module 'Riru - Core' is not installed"
 fi
 
-ui_print "- Extracting module files"
-unzip -o $ZIPFILE module.prop uninstall.sh sepolicy.rule post-fs-data.sh service.sh -d $MODPATH >&2 || abort "! Can't extract module files: $?"
-
 if [ $MAGISK_VER_CODE -lt 20200 ]; then
   ui_print "- Removing sepolicy.rule for Magisk $MAGISK_VER"
   rm $MODPATH/sepolicy.rule
 fi
 
 if [ $ARCH = "x86" ] || [ $ARCH = "x64" ]; then
-  ui_print "- Extracting x86 libraries"
-  unzip -o $ZIPFILE system_x86/* -d $MODPATH >&2 || abort "! Can't extract system/: $?"
-  mv $MODPATH/system_x86 $MODPATH/system
+  ui_print "- Removing arm libraries for x86 device"
+  rm -rf "$MODPATH/riru"
+  mv -f "$MODPATH/riru_x86" "$MODPATH/riru"
 else
-  ui_print "- Extracting arm libraries"
-  unzip -o $ZIPFILE system/* -d $MODPATH >&2 || abort "! Can't extract system/: $?"
+  ui_print "- Removing x86 libraries for arm device"
+  rm -rf "$MODPATH/riru_x86"
 fi
 
 if [ $IS64BIT == false ]; then
   ui_print "- Removing 64-bit libraries"
-  rm -rf $MODPATH/system/lib64
+  rm -rf $MODPATH/riru/lib64
 fi
 
-RIRU_MODULE_PATH="$RIRU_PATH/modules/$RIRU_MODULE_ID"
-
-ui_print "- Extracting riru files"
-
-[ -d $RIRU_MODULE_PATH ] || mkdir -p $RIRU_MODULE_PATH || abort "! Can't create $RIRU_MODULE_PATH: $?"
-cp -f $MODPATH/module.prop $RIRU_MODULE_PATH/module.prop || abort "! Can't copy module.prop to $RIRU_MODULE_PATH: $?"
+if [ "$RIRU_API" -lt 25 ]; then
+  ui_print "- Old riru api version $RIRU_API"
+  mv "$MODPATH/riru" "$MODPATH/system"
+  RIRU_MODULE_PATH="$RIRU_PATH/modules/$RIRU_MODULE_ID"
+  [ -d $RIRU_MODULE_PATH ] || mkdir -p $RIRU_MODULE_PATH || abort "! Can't create $RIRU_MODULE_PATH: $?"
+  cp -f $MODPATH/module.prop $RIRU_MODULE_PATH/module.prop
+else
+  # Riru v25+, maybe the user upgrade from old module without uninstall
+  # Remove the Riru v22's module path to make sure riru knews we're a new module
+  RIRU_22_MODULE_PATH="$RIRU_NEW_PATH/modules/$RIRU_MODULE_ID"
+  ui_print "- Removing $RIRU_22_MODULE_PATH for new Riru $RIRU_API"
+  rm -rf "$RIRU_22_MODULE_PATH"
+fi
 
 ui_print "- Preparing data directory"
 [ -d $DATA_DIR ] || mkdir -p $DATA_DIR || abort "! Can't create $DATA_DIR"

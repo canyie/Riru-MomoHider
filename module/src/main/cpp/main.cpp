@@ -16,11 +16,6 @@
 
 constexpr const char* kMagicHandleAppZygote = "/data/misc/isolatedmagiskhider/app_zygote_magic";
 
-extern "C" {
-int riru_api_version = 0;
-RiruApiV9* riru_api_v9;
-}
-
 const char* magisk_tmp_ = nullptr;
 struct stat zygote_stat_;
 bool magic_handle_app_zygote_ = false;
@@ -30,6 +25,12 @@ bool app_zygote_ = false;
 
 pid_t (*orig_fork)() = nullptr;
 int (*orig_unshare)(int) = nullptr;
+
+int* riru_allow_unload = nullptr;
+
+void AllowUnload() {
+    if (riru_allow_unload) *riru_allow_unload = 1;
+}
 
 const char* ReadMagiskTmp() {
     constexpr const char* path = "/data/misc/isolatedmagiskhider/magisk_tmp";
@@ -42,6 +43,7 @@ const char* ReadMagiskTmp() {
         rewind(fp);
 
         if (size == fread(tmp, 1, static_cast<size_t>(size), fp)) {
+            tmp[size] = '\0';
             magisk_tmp = strdup(tmp);
         } else {
             LOGE("read magisk tmp failed: %s", strerror(errno));
@@ -191,7 +193,6 @@ int UnshareReplace(int flags) {
         // Start hiding before dropping any privileges
         if (isolated_ || app_zygote_)
             StartHide();
-        ClearHooks();
     }
     return res;
 }
@@ -255,75 +256,69 @@ static void forkAndSpecializePre(
 
 static void forkAndSpecializePost(JNIEnv*, jclass, jint res) {
     ClearProcessState();
+    ClearHooks();
+    AllowUnload();
 }
 
-/*
- * Init will be called three times.
- *
- * The first time:
- *   Returns the highest version number supported by both Riru and the module.
- *
- *   arg: (int *) Riru's API version
- *   returns: (int *) the highest possible API version
- *
- * The second time:
- *   Returns the RiruModuleX struct created by the module.
- *   (X is the return of the first call)
- *
- *   arg: (RiruApiVX *) RiruApi strcut, this pointer can be saved for further use
- *   returns: (RiruModuleX *) RiruModule strcut
- *
- * The second time:
- *   Let the module to cleanup (such as RiruModuleX struct created before).
- *
- *   arg: null
- *   returns: (ignored)
- *
- */
-EXPORT void* init(void* arg) {
-    static int step = 0;
-    step++;
+static void specializeAppProcessPre(
+        JNIEnv *env, jclass clazz, jint *uid, jint *gid, jintArray *gids, jint *runtimeFlags,
+        jobjectArray *rlimits, jint *mountExternal, jstring *seInfo, jstring *niceName,
+        jboolean *startChildZygote, jstring *instructionSet, jstring *appDataDir,
+        jboolean *isTopApp, jobjectArray *pkgDataInfoList, jobjectArray *whitelistedDataInfoList,
+        jboolean *bindMountAppDataDirs, jboolean *bindMountAppStorageDirs) {
+    InitProcessState(*uid, *startChildZygote);
+    EnsureSeparatedNamespace(mountExternal);
+}
 
-    static void* _module;
+static void specializeAppProcessPost(JNIEnv *env, jclass clazz) {
+    ClearProcessState();
+    ClearHooks();
+    AllowUnload();
+}
+
+extern "C" {
+int riru_api_version = 0;
+RiruApiV9* riru_api_v9;
+static auto module = RiruVersionedModuleInfo {
+        .moduleApiVersion = RIRU_NEW_MODULE_API_VERSION,
+        .moduleInfo = RiruModuleInfo {
+                .supportHide = true,
+                .version = RIRU_MODULE_VERSION_CODE,
+                .versionName = RIRU_MODULE_VERSION_NAME,
+                .onModuleLoaded = onModuleLoaded,
+                .shouldSkipUid = shouldSkipUid,
+                .forkAndSpecializePre = forkAndSpecializePre,
+                .forkAndSpecializePost = forkAndSpecializePost,
+                .forkSystemServerPre = nullptr,
+                .forkSystemServerPost = nullptr,
+                .specializeAppProcessPre = specializeAppProcessPre,
+                .specializeAppProcessPost = specializeAppProcessPost
+        }
+};
+}
+
+static int step = 0;
+
+EXPORT void* init(Riru* arg) {
+    step++;
 
     switch (step) {
         case 1: {
-            int core_max_api_version = *static_cast<int*>(arg);
-            riru_api_version =
-                    core_max_api_version <= RIRU_NEW_MODULE_API_VERSION ? core_max_api_version
-                                                                        : RIRU_NEW_MODULE_API_VERSION;
-            return &riru_api_version;
-        }
-        case 2: {
-            switch (riru_api_version) {
-                // RiruApiV10 and RiruModuleInfoV10 are equal to V9
-                case 10:
-                case 9: {
-                    riru_api_v9 = (RiruApiV9*) arg;
-
-                    auto module = (RiruModuleInfoV9*) malloc(sizeof(RiruModuleInfoV9));
-                    memset(module, 0, sizeof(RiruModuleInfoV9));
-                    _module = module;
-
-                    module->supportHide = true;
-
-                    module->version = RIRU_MODULE_VERSION_CODE;
-                    module->versionName = RIRU_MODULE_VERSION_NAME;
-                    module->shouldSkipUid = shouldSkipUid;
-                    module->onModuleLoaded = onModuleLoaded;
-                    module->forkAndSpecializePre = forkAndSpecializePre;
-                    module->forkAndSpecializePost = forkAndSpecializePost;
-                    return module;
-                }
-                default: {
-                    return nullptr;
-                }
+            int core_max_api_version = arg->riruApiVersion;
+            riru_api_version = core_max_api_version <= RIRU_NEW_MODULE_API_VERSION
+                    ? core_max_api_version : RIRU_NEW_MODULE_API_VERSION;
+            if (riru_api_version >= 25) {
+                module.moduleApiVersion = riru_api_version;
+                riru_allow_unload = arg->allowUnload;
+                return &module;
+            } else {
+                return &riru_api_version;
             }
         }
-        case 3: {
-            free(_module);
-            return nullptr;
+        case 2: {
+            return &module.moduleInfo;
         }
+        case 3:
         default:
             return nullptr;
     }

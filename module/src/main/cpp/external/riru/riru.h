@@ -66,29 +66,37 @@ typedef struct {
 
 typedef RiruApiV9 RiruApiV10;
 
-/*
- * Init will be called three times.
- *
- * The first time:
- *   Returns the highest version number supported by both Riru and the module.
- *
- *   arg: (int *) Riru's API version
- *   returns: (int *) the highest possible API version
- *
- * The second time:
- *   Returns the RiruModuleX struct created by the module (X is the return of the first call).
- *
- *   arg: (RiruApiVX *) RiruApi strcut, this pointer can be saved for further use
- *   returns: (RiruModuleX *) RiruModule strcut
- *
- * The second time:
- *   Let the module to cleanup (such as RiruModuleX struct created before).
- *
- *   arg: null
- *   returns: (ignored)
- *
- */
-EXPORT void* init(void* arg);
+typedef struct {
+    int supportHide;
+    int version;
+    const char *versionName;
+    onModuleLoaded_v9 *onModuleLoaded;
+    shouldSkipUid_v9 *shouldSkipUid; // Actually unused in Riru V25+
+    nativeForkAndSpecializePre_v9 *forkAndSpecializePre;
+    nativeForkAndSpecializePost_v9 *forkAndSpecializePost;
+    nativeForkSystemServerPre_v9 *forkSystemServerPre;
+    nativeForkSystemServerPost_v9 *forkSystemServerPost;
+    nativeSpecializeAppProcessPre_v9 *specializeAppProcessPre;
+    nativeSpecializeAppProcessPost_v9 *specializeAppProcessPost;
+} RiruModuleInfo;
+
+typedef struct {
+    int moduleApiVersion;
+    RiruModuleInfo moduleInfo;
+} RiruVersionedModuleInfo;
+
+// ---------------------------------------------------------
+
+typedef struct {
+    int riruApiVersion;
+    void *unused;
+    const char *magiskModulePath;
+    int *allowUnload;
+} Riru;
+
+typedef RiruVersionedModuleInfo *(RiruInit_t)(Riru *);
+
+EXPORT void* init(Riru* arg);
 extern int riru_api_version;
 extern RiruApiV9* riru_api_v9;
 
