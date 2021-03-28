@@ -307,6 +307,10 @@ EXPORT void* init(Riru* arg) {
             int core_max_api_version = arg->riruApiVersion;
             riru_api_version = core_max_api_version <= RIRU_NEW_MODULE_API_VERSION
                     ? core_max_api_version : RIRU_NEW_MODULE_API_VERSION;
+            if (riru_api_version > 10 && riru_api_version < 25) {
+                // V24 is pre-release version, not supported
+                riru_api_version = 10;
+            }
             if (riru_api_version >= 25) {
                 module.moduleApiVersion = riru_api_version;
                 riru_allow_unload = arg->allowUnload;
