@@ -229,6 +229,7 @@ EXPORT void nativeForkAndSpecializePre(JNIEnv* env, jclass, jint* uid_ptr, jint*
 
 EXPORT int nativeForkAndSpecializePost(JNIEnv*, jclass, jint result) {
     ClearProcessState();
+    if (result == 0) ClearHooks();
     return 0;
 }
 
@@ -256,7 +257,7 @@ static void forkAndSpecializePre(
 
 static void forkAndSpecializePost(JNIEnv*, jclass, jint res) {
     ClearProcessState();
-    ClearHooks();
+    if (res == 0) ClearHooks();
     AllowUnload();
 }
 
@@ -286,7 +287,7 @@ static auto module = RiruVersionedModuleInfo {
                 .version = RIRU_MODULE_VERSION_CODE,
                 .versionName = RIRU_MODULE_VERSION_NAME,
                 .onModuleLoaded = onModuleLoaded,
-                .shouldSkipUid = shouldSkipUid,
+                .shouldSkipUid = nullptr,
                 .forkAndSpecializePre = forkAndSpecializePre,
                 .forkAndSpecializePost = forkAndSpecializePost,
                 .forkSystemServerPre = nullptr,
@@ -316,6 +317,7 @@ EXPORT void* init(Riru* arg) {
                 riru_allow_unload = arg->allowUnload;
                 return &module;
             } else {
+                module.moduleInfo.shouldSkipUid = shouldSkipUid;
                 return &riru_api_version;
             }
         }
