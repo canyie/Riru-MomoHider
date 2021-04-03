@@ -1,15 +1,21 @@
-# Riru-IsolatedMagiskHider
+# Riru-MomoHider (aka IsolatedMagiskHider)
 ## Background
-Many applications now detect Magisk for security, Magisk provided "Magisk Hide" to prevent detection, but isolated processes and app zygotes will be skipped. This module tries to enable the feature for these processes.
+Many applications now detect Magisk for security, Magisk provided "Magisk Hide" to hide the modified traces but not completely hidden, magisk still can be detected by [MagiskDetector](https://github.com/vvb2060/MagiskDetector). This module tries to make it more hidden.
+
+Features:
+| Config name | Description |
+|  ----  | ----  |
+| isolated | Apply Magisk Hide for isolated process and app zygotes. This feature is deprecated because it will unmount Magisk modified files for every isolated processes, and the unmounting time cannot be well controlled, which may cause some modules to not work. [Magisk alpha](https://github.com/vvb2060/magisk/trees/alpha) or the latest Magisk canary + [Riru-Unshare](https://github.com/vvb2060/riru-unshare) is recommended。|
+| app_zygote_magic | Make a app named "Momo" cannot detect Magisk hide is running. |
+| initrc | Hide the modified traces of init.rc |
+
+Note: Since 0.0.3, all features are disabled by default, you need to create a file under /data/adb/momohider/ to enable it.
 
 ## Requirement
 Rooted Android 7.0+ devices with Magisk and [Riru](https://github.com/RikkaApps/Riru).
 
 ## Build
 Run gradle task :module:assembleMagiskRelease from Android Studio or command line, magisk module zip will be saved to module/build/outputs/magisk/.
-
-## Known Issues
-- Since Android 11, Google has removed /sbin and Magisk will use a random generated directory instead. Now this module hardcoded this path in code, so it may not work in Android 11.
 
 ## Discussion
 - [QQ Group: 949888394](https://shang.qq.com/wpa/qunwpa?idkey=25549719b948d2aaeb9e579955e39d71768111844b370fcb824d43b9b20e1c04)
