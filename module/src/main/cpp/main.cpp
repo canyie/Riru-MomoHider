@@ -9,13 +9,17 @@
 #include <sched.h>
 #include <errno.h>
 #include <pthread.h>
+#include <dirent.h>
+#include <string>
 #include "log.h"
 #include "external/xhook/xhook.h"
 #include "external/riru/riru.h"
 #include "external/magisk/magiskhide.h"
 
-constexpr const char* kSetNs = "/data/misc/isolatedmagiskhider/setns";
-constexpr const char* kMagicHandleAppZygote = "/data/misc/isolatedmagiskhider/app_zygote_magic";
+#define BASE_DIR "/data/adb/momohider"
+constexpr const char* kSetNs = BASE_DIR "/setns";
+constexpr const char* kMagicHandleAppZygote = BASE_DIR "/app_zygote_magic";
+constexpr const char* kMagiskTmp = BASE_DIR "/magisk_tmp";
 
 const char* magisk_tmp_ = nullptr;
 bool magic_handle_app_zygote_ = false;
@@ -51,9 +55,8 @@ void WriteIntAndClose(int fd, int value) {
 }
 
 const char* ReadMagiskTmp() {
-    constexpr const char* path = "/data/misc/isolatedmagiskhider/magisk_tmp";
     const char* magisk_tmp = "/sbin";
-    FILE* fp = fopen(path, "re");
+    FILE* fp = fopen(kMagiskTmp, "re");
     if (fp) {
         char tmp[PATH_MAX];
         fseek(fp, 0, SEEK_END);

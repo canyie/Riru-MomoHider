@@ -1,6 +1,6 @@
 #!/system/bin/sh
 MODDIR=${0%/*}
-DATA_DIR="/data/misc/isolatedmagiskhider/"
+DATA_DIR="/data/adb/momohider"
 
 [ -f "$DATA_DIR/initrc" ] || exit 0
 

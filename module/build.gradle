@@ -21,7 +21,7 @@ android {
             }
         }
         ndk {
-            moduleName "riru_isolatedmagiskhider"
+            moduleName "riru_momohider"
             abiFilters  "arm64-v8a", "armeabi-v7a", "x86_64", "x86"
         }
     }
@@ -45,8 +45,8 @@ dependencies {
 }
 
 def moduleProp = [
-        id: 'riru_isolatedmagiskhider',
-        name: 'Riru-IsolatedMagiskHider',
+        id: 'riru_momohider',
+        name: 'Riru-MomoHider',
         author: 'canyie',
         version: rootProject.ext.versionName,
         versionCode: rootProject.ext.versionCode,
@@ -61,7 +61,7 @@ def nativeDir = "$tempTemplatePath/riru/"
 def nativeDirX86 = "$tempTemplatePath/riru_x86/"
 def nativeAbiToSystemDirMap = ['armeabi-v7a': 'lib', 'arm64-v8a': 'lib64']
 def nativeAbiToSystemDirMapX86 = ['x86': 'lib', 'x86_64': 'lib64']
-def nativeLibName = 'libriru_isolatedmagiskhider.so'
+def nativeLibName = 'libriru_momohider.so'
 def releasePath = "$buildDir/outputs/magisk"
 
 task copyMagiskTemplate(type: Copy) {
@@ -99,7 +99,7 @@ task copyNativeLibs() {
 task zipMagiskFiles(type: Zip) {
     from file(tempTemplatePath)
     destinationDir file(releasePath)
-    baseName 'Riru-IsolatedMagiskHider'
+    baseName 'Riru-MomoHider'
 }
 
 task assembleMagiskRelease(type: GradleBuild, dependsOn: build) {

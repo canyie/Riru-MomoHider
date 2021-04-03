@@ -1,7 +1,8 @@
 RIRU_OLD_PATH="/data/misc/riru"
 RIRU_NEW_PATH="/data/adb/riru"
-RIRU_MODULE_ID="isolatedmagiskhider"
-DATA_DIR="/data/misc/isolatedmagiskhider/"
+RIRU_MODULE_ID="momohider"
+DATA_DIR="/data/adb/momohider"
+OLD_DATA_DIR="/data/misc/isolatedmagiskhider/"
 RIRU_API=0
 
 ui_print "- This is an open source project"
@@ -43,7 +44,7 @@ elif [ -f $RIRU_OLD_PATH/api_version.new ] || [ -f $RIRU_OLD_PATH/api_version ];
 elif [ -f $RIRU_NEW_PATH/api_version.new ] || [ -f $RIRU_NEW_PATH/api_version ]; then
   RIRU_PATH=$RIRU_NEW_PATH
 else
-  abort "! Requirement module 'Riru - Core' is not installed"
+  abort "! Requirement module 'Riru' is not installed"
 fi
 
 if [ $MAGISK_VER_CODE -lt 20200 ]; then
@@ -81,6 +82,11 @@ fi
 
 ui_print "- Preparing data directory"
 [ -d $DATA_DIR ] || mkdir -p $DATA_DIR || abort "! Can't create $DATA_DIR"
+if [ -d $OLD_DATA_DIR ]; then
+  echo "- Migrating previous configures"
+  mv -f "$OLD_DATA_DIR/*" "$DATA_DIR"
+  rm -rf "$OLD_DATA_DIR"
+fi
 
 ui_print "- Setting permissions"
 set_perm_recursive $MODPATH 0 0 0755 0644
