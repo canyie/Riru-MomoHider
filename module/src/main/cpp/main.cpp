@@ -2,26 +2,30 @@
 // Created by canyie on 2021/1/1.
 //
 
+#include <cstdlib>
 #include <malloc.h>
 #include <string.h>
+#include <fcntl.h>
 #include <sched.h>
 #include <errno.h>
 #include <pthread.h>
-#include <cstdlib>
-#include <sys/stat.h>
 #include "log.h"
 #include "external/xhook/xhook.h"
 #include "external/riru/riru.h"
 #include "external/magisk/magiskhide.h"
 
+constexpr const char* kSetNs = "/data/misc/isolatedmagiskhider/setns";
 constexpr const char* kMagicHandleAppZygote = "/data/misc/isolatedmagiskhider/app_zygote_magic";
 
 const char* magisk_tmp_ = nullptr;
-struct stat zygote_stat_;
 bool magic_handle_app_zygote_ = false;
 bool in_child_ = false;
 bool isolated_ = false;
 bool app_zygote_ = false;
+
+bool use_nsholder_ = false;
+char* nsholder_mnt_ns_ = nullptr;
+pid_t nsholder_pid_ = -1;
 
 pid_t (*orig_fork)() = nullptr;
 int (*orig_unshare)(int) = nullptr;
@@ -30,6 +34,20 @@ int* riru_allow_unload = nullptr;
 
 void AllowUnload() {
     if (riru_allow_unload) *riru_allow_unload = 1;
+}
+
+int ReadIntAndClose(int fd) {
+    char buf[16] = {0};
+    read(fd, buf, 15);
+    close(fd);
+    return atoi(buf);
+}
+
+void WriteIntAndClose(int fd, int value) {
+    char buf[16] = {0};
+    snprintf(buf, 15, "%d", value);
+    write(fd, buf, 15);
+    close(fd);
 }
 
 const char* ReadMagiskTmp() {
@@ -57,9 +75,127 @@ const char* ReadMagiskTmp() {
 
 void EnsureSeparatedNamespace(jint* mountMode) {
     if (*mountMode == 0) {
-        LOGI("Changed mount mode from MOUNT_EXTERNAL_NONE to MOUNT_EXTERNAL_DEFAULT");
+        LOGI("Changed mount mode from NONE to DEFAULT");
         *mountMode = 1;
     }
+}
+
+void HideMagisk() {
+    LOGI("Hiding magisk for process %d...", getpid());
+    hide_unmount(magisk_tmp_);
+    LOGI("Unmounted magisk file system.");
+}
+
+void MaybeInitNsHolder(JNIEnv* env) {
+    if (!use_nsholder_) return;
+
+    if (nsholder_mnt_ns_) {
+        if (access(nsholder_mnt_ns_, F_OK) != 0) {
+            // Maybe the nsholder died
+            LOGW("access %s failed with error %s", nsholder_mnt_ns_, strerror(errno));
+            if (nsholder_pid_ > 0){
+                kill(nsholder_pid_, SIGKILL);
+            }
+            free(nsholder_mnt_ns_);
+        } else { // Still alive
+            return;
+        }
+    }
+
+    LOGI("Initializing nsholder");
+    int read_fd, write_fd;
+    {
+        int pipe_fd[2];
+        if (pipe(pipe_fd) == -1) {
+            LOGE("Failed to create pipe for nsholder: %s", strerror(errno));
+            return;
+        } else {
+            read_fd = pipe_fd[0];
+            write_fd = pipe_fd[1];
+        }
+    }
+
+    nsholder_pid_ = orig_fork();
+    if (nsholder_pid_ < 0) { // failed, cleanup
+        LOGE("fork nsholder failed: %s", strerror(errno));
+        close(read_fd);
+        close(write_fd);
+        nsholder_mnt_ns_ = nullptr;
+    } else if (nsholder_pid_ == 0) { // child
+        close(read_fd);
+        if (orig_unshare(CLONE_NEWNS) == -1) {
+            LOGE("nsholder: failed to clone new ns: %s", strerror(errno));
+            WriteIntAndClose(write_fd, 1);
+            exit(1);
+        }
+        HideMagisk();
+
+        // Change process name
+        {
+            jstring name = env->NewStringUTF(sizeof(void*) == 8 ? "nsholder64" : "nsholder32");
+            jclass Process = env->FindClass("android/os/Process");
+            jmethodID setArgV0 = env->GetStaticMethodID(Process, "setArgV0", "(Ljava/lang/String;)V");
+            if (env->ExceptionCheck()) {
+                env->ExceptionClear();
+                LOGW("Process.setArgV0(String) not found");
+            } else {
+                env->CallStaticVoidMethod(Process, setArgV0, name);
+                if (env->ExceptionCheck()) {
+                    env->ExceptionClear();
+                    LOGW("Process.setArgV0(String) threw exception");
+                }
+            }
+            env->DeleteLocalRef(name);
+            env->DeleteLocalRef(Process);
+        }
+
+        // We're in the "cleaned" ns, notify the zygote we're ready and stop us
+        WriteIntAndClose(write_fd, 0);
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wmissing-noreturn"
+        for (;;) {
+            pause();
+            LOGW("nsholder wakes up unexpectedly, sleep again");
+        }
+#pragma clang diagnostic pop
+    } else { // parent, wait the nsholder enter a "clean" ns
+        close(write_fd);
+        int status = ReadIntAndClose(read_fd);
+        if (status == 0) {
+            kill(nsholder_pid_, SIGSTOP);
+            char mnt[32];
+            snprintf(mnt, sizeof(mnt), "/proc/%d/ns/mnt", nsholder_pid_);
+            LOGI("The nsholder is cleaned and stopped, mnt_ns is %s", mnt);
+            nsholder_mnt_ns_ = strdup(mnt);
+            return;
+        } else {
+            LOGE("Unexpected status %d received from the nsholder", status);
+
+            kill(nsholder_pid_, SIGKILL);
+            nsholder_pid_ = -1;
+            nsholder_mnt_ns_ = nullptr;
+            use_nsholder_ = false;
+        }
+    }
+}
+
+bool MaybeSwitchMntNs() {
+    if (!nsholder_mnt_ns_) return false;
+    int fd = open(nsholder_mnt_ns_, O_RDONLY);
+    if (fd < 0) { // Maybe the nsholder died...
+        LOGE("Can't open %s: %s", nsholder_mnt_ns_, strerror(errno));
+        return false;
+    }
+    int ret = setns(fd, 0);
+    int err = errno;
+    close(fd);
+    if (ret != 0) {
+        LOGE("Failed to switch ns: %s", strerror(err));
+        return false;
+    }
+    LOGI("Hided magisk by switch ns");
+    return true;
 }
 
 bool IsApp(int app_id) {
@@ -102,23 +238,6 @@ failed = failed || RegisterHook(#NAME, reinterpret_cast<void*>(orig_##NAME), nul
         return;
     }
     xhook_clear();
-}
-
-void ReadSelfNs(struct stat* st) {
-    stat("/proc/self/ns/mnt", st);
-}
-
-void StartHide() {
-    LOGI("Created isolated process or app zygote %d, starting magisk hide...", getpid());
-    struct stat self_stat;
-    ReadSelfNs(&self_stat);
-    if (self_stat.st_ino == zygote_stat_.st_ino && self_stat.st_dev == zygote_stat_.st_dev) {
-        // This should not happen, we changed mount mode to ensure ns is separated
-        LOGE("Skip hide this process because ns is not separated from zygote");
-        return;
-    }
-    hide_unmount(magisk_tmp_);
-    LOGI("Unmounted magisk file system.");
 }
 
 pid_t MagicHandleAppZygote() {
@@ -166,19 +285,13 @@ pid_t ForkReplace() {
             close(read_fd);
             pid_t new_pid = MagicHandleAppZygote();
             LOGI("Child zygote forked substitute %d", new_pid);
-            char buf[16] = {0};
-            snprintf(buf, 15, "%d", new_pid);
-            write(write_fd, buf, 15);
-            close(write_fd);
+            WriteIntAndClose(write_fd, new_pid);
         }
     } else {
         // parent process
         if (read_fd != -1 && write_fd != -1) {
             close(write_fd);
-            char buf[16] = {0};
-            read(read_fd, buf, 15);
-            close(read_fd);
-            pid = atoi(buf);
+            pid = ReadIntAndClose(read_fd);
             LOGI("Zygote received new substitute pid %d", pid);
         }
     }
@@ -186,13 +299,15 @@ pid_t ForkReplace() {
 }
 
 int UnshareReplace(int flags) {
+    bool isolated_ns = (flags & CLONE_NEWNS) != 0 && in_child_ && (isolated_ || app_zygote_);
+    bool cleaned = false;
+    if (isolated_ns) {
+        cleaned = MaybeSwitchMntNs();
+    }
     int res = orig_unshare(flags);
     if (res == -1) return res;
-    if (!in_child_) return res;
-    if (flags & CLONE_NEWNS) {
-        // Start hiding before dropping any privileges
-        if (isolated_ || app_zygote_)
-            StartHide();
+    if (isolated_ns && !cleaned) { // If not in a cleaned ns, try hide directly again
+        HideMagisk();
     }
     return res;
 }
@@ -225,6 +340,7 @@ EXPORT void nativeForkAndSpecializePre(JNIEnv* env, jclass, jint* uid_ptr, jint*
                                        jobjectArray*) {
     InitProcessState(*uid_ptr, *is_child_zygote);
     EnsureSeparatedNamespace(mount_external);
+    MaybeInitNsHolder(env);
 }
 
 EXPORT int nativeForkAndSpecializePost(JNIEnv*, jclass, jint result) {
@@ -236,10 +352,10 @@ EXPORT int nativeForkAndSpecializePost(JNIEnv*, jclass, jint result) {
 EXPORT void onModuleLoaded() {
     magisk_tmp_ = ReadMagiskTmp();
     LOGI("Magisk temp path is %s", magisk_tmp_);
-    ReadSelfNs(&zygote_stat_);
     LOGI("Registering fork monitor");
     RegisterHooks();
     magic_handle_app_zygote_ = access(kMagicHandleAppZygote, F_OK) == 0;
+    use_nsholder_ = access(kSetNs, F_OK) == 0;
 }
 
 // After Riru v22
@@ -253,12 +369,15 @@ static void forkAndSpecializePre(
         jboolean* bindMountAppStorageDirs) {
     InitProcessState(*_uid, *is_child_zygote);
     EnsureSeparatedNamespace(mountExternal);
+    MaybeInitNsHolder(env);
 }
 
 static void forkAndSpecializePost(JNIEnv*, jclass, jint res) {
     ClearProcessState();
-    if (res == 0) ClearHooks();
-    AllowUnload();
+    if (res == 0) {
+        ClearHooks();
+        AllowUnload();
+    }
 }
 
 static void specializeAppProcessPre(
