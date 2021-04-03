@@ -38,6 +38,12 @@ int (*orig_unshare)(int) = nullptr;
 
 int* riru_allow_unload = nullptr;
 
+bool Exists(const char* path) {
+    if (access(path, F_OK) == 0) return true;
+    LOGD("access %s failed: %s", path, strerror(errno));
+    return false;
+}
+
 void AllowUnload() {
     if (riru_allow_unload) *riru_allow_unload = 1;
 }
@@ -235,9 +241,7 @@ void ClearHooks() {
 #define UNHOOK(NAME) \
 failed = failed || RegisterHook(#NAME, reinterpret_cast<void*>(orig_##NAME), nullptr)
 
-    if (magic_handle_app_zygote_) {
-        UNHOOK(fork);
-    }
+    UNHOOK(fork);
     if (hide_isolated_) {
         UNHOOK(unshare);
     }
@@ -324,18 +328,15 @@ int UnshareReplace(int flags) {
 
 void RegisterHooks() {
     if (!hide_isolated_ && !magic_handle_app_zygote_) return;
-    LOGI("Registering hooks");
     xhook_enable_debug(1);
     xhook_enable_sigsegv_protection(0);
     bool failed = false;
 #define HOOK(NAME, REPLACE) \
 failed = failed || RegisterHook(#NAME, reinterpret_cast<void*>(REPLACE), reinterpret_cast<void**>(&orig_##NAME))
 
-    if (magic_handle_app_zygote_) {
-        HOOK(fork, ForkReplace);
-    }
-
+    HOOK(fork, ForkReplace);
     if (hide_isolated_) {
+        LOGI("registering unshare hook");
         HOOK(unshare, UnshareReplace);
     }
 
@@ -372,9 +373,9 @@ EXPORT int nativeForkAndSpecializePost(JNIEnv*, jclass, jint result) {
 EXPORT void onModuleLoaded() {
     magisk_tmp_ = ReadMagiskTmp();
     LOGI("Magisk temp path is %s", magisk_tmp_);
-    hide_isolated_ = access(kIsolated, F_OK) == 0;
-    magic_handle_app_zygote_ = access(kMagicHandleAppZygote, F_OK) == 0;
-    use_nsholder_ = access(kSetNs, F_OK) == 0;
+    hide_isolated_ = Exists(kIsolated);
+    magic_handle_app_zygote_ = Exists(kMagicHandleAppZygote);
+    use_nsholder_ = Exists(kSetNs);
     RegisterHooks();
 }
 
