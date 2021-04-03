@@ -17,7 +17,7 @@ using namespace std;
 #define INTLROOT    ".magisk"
 #define BLOCKDIR    INTLROOT "/block"
 
-// IsolatedMagiskHider changed: fn have no return type
+// MomoHider changed: fn have no return type
 void parse_mnt(const char *file, const function<void(mntent*)> &fn) {
     auto fp = std::unique_ptr<FILE, decltype(&fclose)>(setmntent(file, "re"), endmntent);
     if (fp) {
@@ -40,9 +40,9 @@ static void lazy_unmount(const char* mountpoint) {
         LOGE("hide_policy: can't unmount %s: %s", mountpoint, strerror(errno));
 }
 
-// IsolatedMagiskHider changed: don't pass pid, the target process is always myself.
+// MomoHider changed: don't pass pid, the target process is always myself.
 void hide_unmount(const char* magisk_tmp) {
-    // IsolatedMagiskHider changed: don't change namespace, the target process is always myself.
+    // MomoHider changed: don't change namespace, the target process is always myself.
 //    if (switch_mnt_ns())
 //        return;
 

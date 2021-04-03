@@ -20,9 +20,11 @@
 constexpr const char* kSetNs = BASE_DIR "/setns";
 constexpr const char* kMagicHandleAppZygote = BASE_DIR "/app_zygote_magic";
 constexpr const char* kMagiskTmp = BASE_DIR "/magisk_tmp";
+constexpr const char* kIsolated = BASE_DIR "/isolated";
 
 const char* magisk_tmp_ = nullptr;
 bool magic_handle_app_zygote_ = false;
+bool hide_isolated_ = false;
 bool in_child_ = false;
 bool isolated_ = false;
 bool app_zygote_ = false;
@@ -226,14 +228,19 @@ bool RegisterHook(const char* name, void* replace, void** backup) {
 }
 
 void ClearHooks() {
+    if (!hide_isolated_ && !magic_handle_app_zygote_) return;
     xhook_enable_debug(1);
     xhook_enable_sigsegv_protection(0);
     bool failed = false;
 #define UNHOOK(NAME) \
 failed = failed || RegisterHook(#NAME, reinterpret_cast<void*>(orig_##NAME), nullptr)
 
-    UNHOOK(fork);
-    UNHOOK(unshare);
+    if (magic_handle_app_zygote_) {
+        UNHOOK(fork);
+    }
+    if (hide_isolated_) {
+        UNHOOK(unshare);
+    }
 #undef UNHOOK
 
     if (failed || xhook_refresh(0)) {
@@ -316,14 +323,22 @@ int UnshareReplace(int flags) {
 }
 
 void RegisterHooks() {
+    if (!hide_isolated_ && !magic_handle_app_zygote_) return;
+    LOGI("Registering hooks");
     xhook_enable_debug(1);
     xhook_enable_sigsegv_protection(0);
     bool failed = false;
 #define HOOK(NAME, REPLACE) \
 failed = failed || RegisterHook(#NAME, reinterpret_cast<void*>(REPLACE), reinterpret_cast<void**>(&orig_##NAME))
 
-    HOOK(fork, ForkReplace);
-    HOOK(unshare, UnshareReplace);
+    if (magic_handle_app_zygote_) {
+        HOOK(fork, ForkReplace);
+    }
+
+    if (hide_isolated_) {
+        HOOK(unshare, UnshareReplace);
+    }
+
 #undef HOOK
 
     if (failed || xhook_refresh(0)) {
@@ -342,8 +357,10 @@ EXPORT void nativeForkAndSpecializePre(JNIEnv* env, jclass, jint* uid_ptr, jint*
                                        jboolean* is_child_zygote, jstring*, jstring*, jboolean*,
                                        jobjectArray*) {
     InitProcessState(*uid_ptr, *is_child_zygote);
-    EnsureSeparatedNamespace(mount_external);
-    MaybeInitNsHolder(env);
+    if (hide_isolated_) {
+        EnsureSeparatedNamespace(mount_external);
+        MaybeInitNsHolder(env);
+    }
 }
 
 EXPORT int nativeForkAndSpecializePost(JNIEnv*, jclass, jint result) {
@@ -355,10 +372,10 @@ EXPORT int nativeForkAndSpecializePost(JNIEnv*, jclass, jint result) {
 EXPORT void onModuleLoaded() {
     magisk_tmp_ = ReadMagiskTmp();
     LOGI("Magisk temp path is %s", magisk_tmp_);
-    LOGI("Registering fork monitor");
-    RegisterHooks();
+    hide_isolated_ = access(kIsolated, F_OK) == 0;
     magic_handle_app_zygote_ = access(kMagicHandleAppZygote, F_OK) == 0;
     use_nsholder_ = access(kSetNs, F_OK) == 0;
+    RegisterHooks();
 }
 
 // After Riru v22
@@ -371,8 +388,10 @@ static void forkAndSpecializePre(
         jobjectArray* whitelistedDataInfoList, jboolean* bindMountAppDataDirs,
         jboolean* bindMountAppStorageDirs) {
     InitProcessState(*_uid, *is_child_zygote);
-    EnsureSeparatedNamespace(mountExternal);
-    MaybeInitNsHolder(env);
+    if (hide_isolated_) {
+        EnsureSeparatedNamespace(mountExternal);
+        MaybeInitNsHolder(env);
+    }
 }
 
 static void forkAndSpecializePost(JNIEnv*, jclass, jint res) {
@@ -390,7 +409,7 @@ static void specializeAppProcessPre(
         jboolean *isTopApp, jobjectArray *pkgDataInfoList, jobjectArray *whitelistedDataInfoList,
         jboolean *bindMountAppDataDirs, jboolean *bindMountAppStorageDirs) {
     InitProcessState(*uid, *startChildZygote);
-    EnsureSeparatedNamespace(mountExternal);
+    if (hide_isolated_) EnsureSeparatedNamespace(mountExternal);
 }
 
 static void specializeAppProcessPost(JNIEnv *env, jclass clazz) {
