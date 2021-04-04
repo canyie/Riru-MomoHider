@@ -20,11 +20,8 @@ else
   ui_print "- Android API level: $API"
 fi
 
-if [ "$MAGISK_VER_CODE" -ge 21000 ]; then
-  MAGISK_CURRENT_RIRU_MODULE_PATH=$(magisk --path)/.magisk/modules/riru-core
-else
-  MAGISK_CURRENT_RIRU_MODULE_PATH=/sbin/.magisk/modules/riru-core
-fi
+MAGISK_TMP=$(magisk --path) || MAGISK_TMP="/sbin"
+MAGISK_CURRENT_RIRU_MODULE_PATH=$MAGISK_TMP/.magisk/modules/riru-core
 
 if [ -f $MAGISK_CURRENT_RIRU_MODULE_PATH/util_functions.sh ]; then
   # Riru V24+, api version is provided in util_functions.sh

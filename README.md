@@ -5,7 +5,7 @@ Many applications now detect Magisk for security, Magisk provided "Magisk Hide" 
 Features:
 | Config name | Description |
 |  ----  | ----  |
-| isolated | Apply Magisk Hide for isolated process and app zygotes. This feature is deprecated because it will unmount Magisk modified files for every isolated processes, and the unmounting time cannot be well controlled, which may cause some modules to not work. [Magisk alpha](https://github.com/vvb2060/magisk/trees/alpha) or the latest Magisk canary + [Riru-Unshare](https://github.com/vvb2060/riru-unshare) is recommended。|
+| isolated | Apply Magisk Hide for isolated process and app zygotes. This feature is deprecated because it will unmount Magisk modified files for every isolated processes, and the unmounting time cannot be well controlled, which may cause some modules to not work. [Magisk Alpha](https://github.com/vvb2060/magisk/tree/alpha) or the latest Magisk canary + [Riru-Unshare](https://github.com/vvb2060/riru-unshare) is recommended.|
 | app_zygote_magic | Make a app named "Momo" cannot detect Magisk hide is running. |
 | initrc | Hide the modified traces of init.rc |
 

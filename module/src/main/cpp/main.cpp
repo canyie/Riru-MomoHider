@@ -163,6 +163,13 @@ void MaybeInitNsHolder(JNIEnv* env) {
         // We're in the "cleaned" ns, notify the zygote we're ready and stop us
         WriteIntAndClose(write_fd, 0);
 
+        // All done, but we should keep alive, because we need to keep the namespace
+        // If a fd references the namespace, the ns won't be destroyed
+        // but we need to open a fd in zygote, and Google don't want we opened new fd across fork,
+        // zygote will abort with error like "Not whitelisted (41): mnt:[4026533391]"
+        // We can manually call the Zygote.nativeAllowAcrossFork(), but this can be detected by app;
+        // or, we can use the "fdsToIgnore" argument, but for usap, forkApp() haven't the argument.
+        // To keep it simple, just let fd not opened in zygote
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wmissing-noreturn"
         for (;;) {
@@ -170,11 +177,12 @@ void MaybeInitNsHolder(JNIEnv* env) {
             LOGW("nsholder wakes up unexpectedly, sleep again");
         }
 #pragma clang diagnostic pop
+
     } else { // parent, wait the nsholder enter a "clean" ns
         close(write_fd);
         int status = ReadIntAndClose(read_fd);
         if (status == 0) {
-            kill(nsholder_pid_, SIGSTOP);
+            kill(nsholder_pid_, SIGSTOP); // make nsholder is stopped again
             char mnt[32];
             snprintf(mnt, sizeof(mnt), "/proc/%d/ns/mnt", nsholder_pid_);
             LOGI("The nsholder is cleaned and stopped, mnt_ns is %s", mnt);
@@ -336,7 +344,6 @@ failed = failed || RegisterHook(#NAME, reinterpret_cast<void*>(REPLACE), reinter
 
     HOOK(fork, ForkReplace);
     if (hide_isolated_) {
-        LOGI("registering unshare hook");
         HOOK(unshare, UnshareReplace);
     }
 
