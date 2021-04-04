@@ -6,6 +6,7 @@ Features:
 | Config name | Description |
 |  ----  | ----  |
 | isolated | Apply Magisk Hide for isolated process and app zygotes. This feature is deprecated because it will unmount Magisk modified files for every isolated processes, and the unmounting time cannot be well controlled, which may cause some modules to not work. [Magisk Alpha](https://github.com/vvb2060/magisk/tree/alpha) or the latest Magisk canary + [Riru-Unshare](https://github.com/vvb2060/riru-unshare) is recommended.|
+| setns | Faster new way to hide Magisk in isolated processes. Requires config "isolated" is enabled. |
 | app_zygote_magic | Make a app named "Momo" cannot detect Magisk hide is running. |
 | initrc | Hide the modified traces of init.rc |
 
