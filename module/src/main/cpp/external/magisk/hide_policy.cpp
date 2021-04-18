@@ -3,12 +3,12 @@
 // This file is sourced from https://github.com/topjohnwu/Magisk/
 //
 
+#include <cerrno>
 #include <string>
 #include <vector>
 #include <mntent.h>
 #include <sys/mount.h>
 #include <unistd.h>
-#include <errno.h>
 #include "magiskhide.h"
 #include "../../log.h"
 
@@ -34,13 +34,15 @@ static void lazy_unmount(const char* mountpoint) {
         LOGE("Skip unmount XposedBridge.jar because the rovo89's Xposed framework can't handle this case.");
         return;
     }
-    if (umount2(mountpoint, MNT_DETACH) != -1)
-        LOGD("hide_policy: Unmounted (%s)\n", mountpoint);
-    else
+    if (umount2(mountpoint, MNT_DETACH) != -1) {
+        //LOGD("hide_policy: Unmounted (%s)\n", mountpoint);
+    } else {
         LOGE("hide_policy: can't unmount %s: %s", mountpoint, strerror(errno));
+    }
 }
 
 // MomoHider changed: don't pass pid, the target process is always myself.
+// MomoHider changed: don't print log in app process
 void hide_unmount(const char* magisk_tmp) {
     // MomoHider changed: don't change namespace, the target process is always myself.
 //    if (switch_mnt_ns())

@@ -99,9 +99,7 @@ void EnsureSeparatedNamespace(jint* mountMode) {
 }
 
 void HideMagisk() {
-    LOGI("Hiding magisk for process %d...", getpid());
     hide_unmount(magisk_tmp_);
-    LOGI("Unmounted magisk file system.");
 }
 
 void MaybeInitNsHolder(JNIEnv* env) {
@@ -146,7 +144,9 @@ void MaybeInitNsHolder(JNIEnv* env) {
             WriteIntAndClose(write_fd, 1);
             exit(1);
         }
+        LOGI("Hiding Magisk in nsholder %d...", getpid());
         HideMagisk();
+        LOGI("Unmounted maigsk file system.");
 
         // Change process name
         {
@@ -216,7 +216,6 @@ bool MaybeSwitchMntNs() {
         LOGE("Failed to switch ns: %s", strerror(err));
         return false;
     }
-    LOGI("Hided magisk by switch ns");
     return true;
 }
 
@@ -246,7 +245,7 @@ bool RegisterHook(const char* name, void* replace, void** backup) {
 
 void ClearHooks() {
     if (!hide_isolated_ && !magic_handle_app_zygote_) return;
-    xhook_enable_debug(1);
+    xhook_enable_debug(0); // Suppress log in app process
     xhook_enable_sigsegv_protection(0);
     bool failed = false;
 #define UNHOOK(NAME) \
@@ -309,7 +308,7 @@ pid_t ForkReplace() {
         if (read_fd != -1 && write_fd != -1) {
             close(read_fd);
             pid_t new_pid = MagicHandleAppZygote();
-            LOGI("Child zygote forked substitute %d", new_pid);
+            //LOGI("Child zygote forked substitute %d", new_pid);
             WriteIntAndClose(write_fd, new_pid);
         }
     } else {

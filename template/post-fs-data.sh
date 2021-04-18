@@ -11,4 +11,4 @@ echo -n "$MAGISK_TMP" > "$DATA_DIR/magisk_tmp"
 
 magiskpolicy --live "allow zygote * filesystem { unmount }" \
 "allow zygote zygote capability { sys_ptrace sys_chroot }" \
-"allow zygote unlabeled file { read }"
+"allow zygote unlabeled file { open read }"
