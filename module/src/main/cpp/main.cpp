@@ -3,24 +3,23 @@
 //
 
 #include <cstdlib>
+#include <cerrno>
+#include <cstring>
 #include <malloc.h>
-#include <string.h>
 #include <fcntl.h>
 #include <sched.h>
-#include <errno.h>
 #include <pthread.h>
 #include <dirent.h>
-#include <string>
 #include "log.h"
 #include "external/xhook/xhook.h"
 #include "external/riru/riru.h"
 #include "external/magisk/magiskhide.h"
 
-#define BASE_DIR "/data/adb/momohider"
-constexpr const char* kSetNs = BASE_DIR "/setns";
-constexpr const char* kMagicHandleAppZygote = BASE_DIR "/app_zygote_magic";
-constexpr const char* kMagiskTmp = BASE_DIR "/magisk_tmp";
-constexpr const char* kIsolated = BASE_DIR "/isolated";
+const char* module_dir_ = nullptr;
+constexpr const char* kSetNs = "setns";
+constexpr const char* kMagicHandleAppZygote = "app_zygote_magic";
+constexpr const char* kMagiskTmp = "magisk_tmp";
+constexpr const char* kIsolated = "isolated";
 
 const char* magisk_tmp_ = nullptr;
 bool magic_handle_app_zygote_ = false;
@@ -38,7 +37,13 @@ int (*orig_unshare)(int) = nullptr;
 
 int* riru_allow_unload = nullptr;
 
-bool Exists(const char* path) {
+void ConfigPath(const char* name, char* out) {
+    snprintf(out, 127, "%s/config/%s", module_dir_, name);
+}
+
+bool Exists(const char* name) {
+    char path[128] = {0};
+    ConfigPath(name, path);
     if (access(path, F_OK) == 0) return true;
     LOGD("access %s failed: %s", path, strerror(errno));
     return false;
@@ -64,7 +69,9 @@ void WriteIntAndClose(int fd, int value) {
 
 const char* ReadMagiskTmp() {
     const char* magisk_tmp = "/sbin";
-    FILE* fp = fopen(kMagiskTmp, "re");
+    char path[128];
+    ConfigPath(kMagiskTmp, path);
+    FILE* fp = fopen(path, "re");
     if (fp) {
         char tmp[PATH_MAX];
         fseek(fp, 0, SEEK_END);
@@ -104,7 +111,7 @@ void MaybeInitNsHolder(JNIEnv* env) {
         if (access(nsholder_mnt_ns_, F_OK) != 0) {
             // Maybe the nsholder died
             LOGW("access %s failed with error %s", nsholder_mnt_ns_, strerror(errno));
-            if (nsholder_pid_ > 0){
+            if (nsholder_pid_ > 0) {
                 kill(nsholder_pid_, SIGKILL);
             }
             free(nsholder_mnt_ns_);
@@ -113,7 +120,7 @@ void MaybeInitNsHolder(JNIEnv* env) {
         }
     }
 
-    LOGI("Initializing nsholder");
+    LOGI("Starting nsholder");
     int read_fd, write_fd;
     {
         int pipe_fd[2];
@@ -170,14 +177,10 @@ void MaybeInitNsHolder(JNIEnv* env) {
         // We can manually call the Zygote.nativeAllowAcrossFork(), but this can be detected by app;
         // or, we can use the "fdsToIgnore" argument, but for usap, forkApp() haven't the argument.
         // To keep it simple, just let fd not opened in zygote
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wmissing-noreturn"
         for (;;) {
             pause();
             LOGW("nsholder wakes up unexpectedly, sleep again");
         }
-#pragma clang diagnostic pop
-
     } else { // parent, wait the nsholder enter a "clean" ns
         close(write_fd);
         int status = ReadIntAndClose(read_fd);
@@ -356,28 +359,8 @@ failed = failed || RegisterHook(#NAME, reinterpret_cast<void*>(REPLACE), reinter
     xhook_clear();
 }
 
-EXPORT int shouldSkipUid(int uid) { return false; }
-
-// Before Riru v22
-EXPORT void nativeForkAndSpecializePre(JNIEnv* env, jclass, jint* uid_ptr, jint* gid_ptr,
-                                       jintArray*, jint*, jobjectArray*, jint* mount_external,
-                                       jstring*, jstring*, jintArray*, jintArray*,
-                                       jboolean* is_child_zygote, jstring*, jstring*, jboolean*,
-                                       jobjectArray*) {
-    InitProcessState(*uid_ptr, *is_child_zygote);
-    if (hide_isolated_) {
-        EnsureSeparatedNamespace(mount_external);
-        MaybeInitNsHolder(env);
-    }
-}
-
-EXPORT int nativeForkAndSpecializePost(JNIEnv*, jclass, jint result) {
-    ClearProcessState();
-    if (result == 0) ClearHooks();
-    return 0;
-}
-
-EXPORT void onModuleLoaded() {
+void onModuleLoaded() {
+    LOGI("Magisk module dir is %s", module_dir_);
     magisk_tmp_ = ReadMagiskTmp();
     LOGI("Magisk temp path is %s", magisk_tmp_);
     hide_isolated_ = Exists(kIsolated);
@@ -426,9 +409,7 @@ static void specializeAppProcessPost(JNIEnv *env, jclass clazz) {
     AllowUnload();
 }
 
-extern "C" {
 int riru_api_version = 0;
-RiruApiV9* riru_api_v9;
 static auto module = RiruVersionedModuleInfo {
         .moduleApiVersion = RIRU_NEW_MODULE_API_VERSION,
         .moduleInfo = RiruModuleInfo {
@@ -445,36 +426,22 @@ static auto module = RiruVersionedModuleInfo {
                 .specializeAppProcessPost = specializeAppProcessPost
         }
 };
-}
-
-static int step = 0;
 
 EXPORT void* init(Riru* arg) {
-    step++;
-
-    switch (step) {
-        case 1: {
-            int core_max_api_version = arg->riruApiVersion;
-            riru_api_version = core_max_api_version <= RIRU_NEW_MODULE_API_VERSION
-                    ? core_max_api_version : RIRU_NEW_MODULE_API_VERSION;
-            if (riru_api_version > 10 && riru_api_version < 25) {
-                // V24 is pre-release version, not supported
-                riru_api_version = 10;
-            }
-            if (riru_api_version >= 25) {
-                module.moduleApiVersion = riru_api_version;
-                riru_allow_unload = arg->allowUnload;
-                return &module;
-            } else {
-                module.moduleInfo.shouldSkipUid = shouldSkipUid;
-                return &riru_api_version;
-            }
-        }
-        case 2: {
-            return &module.moduleInfo;
-        }
-        case 3:
-        default:
-            return nullptr;
+    int core_max_api_version = arg->riruApiVersion;
+    riru_api_version = core_max_api_version <= RIRU_NEW_MODULE_API_VERSION
+                       ? core_max_api_version : RIRU_NEW_MODULE_API_VERSION;
+    if (riru_api_version > 10 && riru_api_version < 25) {
+        // V24 is pre-release version, not supported
+        riru_api_version = 10;
     }
+    if (riru_api_version >= 25) {
+        module.moduleApiVersion = riru_api_version;
+        riru_allow_unload = arg->allowUnload;
+        module_dir_ = strdup(arg->magiskModulePath);
+        return &module;
+    } else {
+        LOGE("MomoHider requires Riru V25 or above, but current Riru api version is %d", riru_api_version);
+    }
+    return nullptr;
 }

@@ -1,6 +1,6 @@
 #!/system/bin/sh
 MODDIR=${0%/*}
-DATA_DIR="/data/adb/momohider"
+DATA_DIR="$MODDIR/config"
 
 [ -f "$DATA_DIR/initrc" ] || exit 0
 

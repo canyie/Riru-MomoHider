@@ -1,8 +1,9 @@
 RIRU_OLD_PATH="/data/misc/riru"
 RIRU_NEW_PATH="/data/adb/riru"
 RIRU_MODULE_ID="momohider"
-DATA_DIR="/data/adb/momohider"
-OLD_DATA_DIR="/data/misc/isolatedmagiskhider/"
+DATA_DIR="$MODPATH/config"
+OLD_DATA_DIR="/data/adb/momohider"
+OLD_DATA_DIR_2="/data/misc/isolatedmagiskhider/"
 RIRU_API=0
 
 ui_print "- This is an open source project"
@@ -21,7 +22,8 @@ else
 fi
 
 MAGISK_TMP=$(magisk --path) || MAGISK_TMP="/sbin"
-MAGISK_CURRENT_RIRU_MODULE_PATH=$MAGISK_TMP/.magisk/modules/riru-core
+MAGISK_CURRENT_MODULES="$MAGISK_TMP/.magisk/modules"
+MAGISK_CURRENT_RIRU_MODULE_PATH="$MAGISK_CURRENT_MODULES/riru-core"
 
 if [ -f $MAGISK_CURRENT_RIRU_MODULE_PATH/util_functions.sh ]; then
   # Riru V24+, api version is provided in util_functions.sh
@@ -44,6 +46,8 @@ else
   abort "! Requirement module 'Riru' is not installed"
 fi
 
+[ "$RIRU_API" -lt 25 ] && abort "! MomoHider requires Riru V25 or above"
+
 if [ $MAGISK_VER_CODE -lt 20200 ]; then
   ui_print "- Removing sepolicy.rule for Magisk $MAGISK_VER"
   rm $MODPATH/sepolicy.rule
@@ -63,27 +67,28 @@ if [ $IS64BIT == false ]; then
   rm -rf $MODPATH/riru/lib64
 fi
 
-if [ "$RIRU_API" -lt 25 ]; then
-  ui_print "- Old riru api version $RIRU_API"
-  mv "$MODPATH/riru" "$MODPATH/system"
-  RIRU_MODULE_PATH="$RIRU_PATH/modules/$RIRU_MODULE_ID"
-  [ -d $RIRU_MODULE_PATH ] || mkdir -p $RIRU_MODULE_PATH || abort "! Can't create $RIRU_MODULE_PATH: $?"
-  cp -f $MODPATH/module.prop $RIRU_MODULE_PATH/module.prop
-else
-  # Riru v25+, maybe the user upgrade from old module without uninstall
-  # Remove the Riru v22's module path to make sure riru knews we're a new module
-  RIRU_22_MODULE_PATH="$RIRU_NEW_PATH/modules/$RIRU_MODULE_ID"
-  ui_print "- Removing $RIRU_22_MODULE_PATH for new Riru $RIRU_API"
-  rm -rf "$RIRU_22_MODULE_PATH"
-fi
+# Riru v25+, maybe the user upgrade from old module without uninstall
+# Remove the Riru v22's module path to make sure riru knews we're a new module
+RIRU_22_MODULE_PATH="$RIRU_NEW_PATH/modules/$RIRU_MODULE_ID"
+ui_print "- Removing $RIRU_22_MODULE_PATH for new Riru $RIRU_API"
+rm -rf "$RIRU_22_MODULE_PATH"
 
 ui_print "- Preparing data directory"
-[ -d $DATA_DIR ] || mkdir -p $DATA_DIR || abort "! Can't create $DATA_DIR"
+
+CURRENT_CONFIG_DIR="$MAGISK_CURRENT_MODULES/riru_momohider/config"
+[ -d "$CURRENT_CONFIG_DIR" ] && cp -r "$CURRENT_CONFIG_DIR" "$DATA_DIR"
+
 if [ -d $OLD_DATA_DIR ]; then
-  echo "- Migrating previous configures"
-  mv -f "$OLD_DATA_DIR/*" "$DATA_DIR"
+  mv -f "$OLD_DATA_DIR" "$DATA_DIR"
   rm -rf "$OLD_DATA_DIR"
 fi
+
+if [ -d $OLD_DATA_DIR_2 ]; then
+  mv -f "$OLD_DATA_DIR_2" "$DATA_DIR"
+  rm -rf "$OLD_DATA_DIR_2"
+fi
+
+[ -d $DATA_DIR ] || mkdir -p $DATA_DIR || abort "! Can't create $DATA_DIR"
 
 ui_print "- Setting permissions"
 set_perm_recursive $MODPATH 0 0 0755 0644

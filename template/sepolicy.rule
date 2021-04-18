@@ -1,8 +1,5 @@
 allow zygote * filesystem { unmount }
 
-# Enter /data/adb
-allow zygote adb_data_file dir search
-
 # For setns()
 allow zygote zygote capability { sys_ptrace sys_chroot }
-allow zygote unlabeled file { open read }
+allow zygote unlabeled file { read }

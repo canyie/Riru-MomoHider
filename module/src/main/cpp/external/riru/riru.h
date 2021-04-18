@@ -47,28 +47,6 @@ typedef void(nativeSpecializeAppProcessPost_v9)(JNIEnv* env, jclass cls);
 typedef struct {
     int supportHide;
     int version;
-    const char* versionName;
-    onModuleLoaded_v9* onModuleLoaded;
-    shouldSkipUid_v9* shouldSkipUid;
-    nativeForkAndSpecializePre_v9* forkAndSpecializePre;
-    nativeForkAndSpecializePost_v9* forkAndSpecializePost;
-    nativeForkSystemServerPre_v9* forkSystemServerPre;
-    nativeForkSystemServerPost_v9* forkSystemServerPost;
-    nativeSpecializeAppProcessPre_v9* specializeAppProcessPre;
-    nativeSpecializeAppProcessPost_v9* specializeAppProcessPost;
-} RiruModuleInfoV9;
-
-typedef RiruModuleInfoV9 RiruModuleInfoV10;
-
-typedef struct {
-    // ...
-} RiruApiV9;
-
-typedef RiruApiV9 RiruApiV10;
-
-typedef struct {
-    int supportHide;
-    int version;
     const char *versionName;
     onModuleLoaded_v9 *onModuleLoaded;
     shouldSkipUid_v9 *shouldSkipUid; // Actually unused in Riru V25+
@@ -97,8 +75,6 @@ typedef struct {
 typedef RiruVersionedModuleInfo *(RiruInit_t)(Riru *);
 
 EXPORT void* init(Riru* arg);
-extern int riru_api_version;
-extern RiruApiV9* riru_api_v9;
 
 #ifdef __cplusplus
 }
