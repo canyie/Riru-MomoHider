@@ -37,7 +37,7 @@ hide_initrc() {
     sleep 1
   done
 
-  # Delete Magisk's service in system properities
+  # Delete Magisk's service in system properties
   POST_FS_DATA=$(grep_service_name "post-fs-data")
   LATE_START_SERVICE=$(grep_service_name "service")
   BOOT_COMPLETED=$(grep_service_name "boot-complete")

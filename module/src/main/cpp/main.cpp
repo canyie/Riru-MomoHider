@@ -146,7 +146,7 @@ void MaybeInitNsHolder(JNIEnv* env) {
         }
         LOGI("Hiding Magisk in nsholder %d...", getpid());
         HideMagisk();
-        LOGI("Unmounted maigsk file system.");
+        LOGI("Unmounted magisk file system.");
 
         // Change process name
         {
@@ -271,6 +271,7 @@ pid_t MagicHandleAppZygote() {
     pid_t pid = orig_fork();
     if (pid > 0) {
         // parent
+        LOGI("Child zygote forked substitute %d", pid);
         exit(0);
     } else if (pid == 0) {
         pid = getpid();
@@ -308,7 +309,6 @@ pid_t ForkReplace() {
         if (read_fd != -1 && write_fd != -1) {
             close(read_fd);
             pid_t new_pid = MagicHandleAppZygote();
-            //LOGI("Child zygote forked substitute %d", new_pid);
             WriteIntAndClose(write_fd, new_pid);
         }
     } else {
