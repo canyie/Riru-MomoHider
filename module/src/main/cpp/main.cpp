@@ -27,6 +27,7 @@ bool hide_isolated_ = false;
 bool in_child_ = false;
 bool isolated_ = false;
 bool app_zygote_ = false;
+bool no_new_ns_ = false;
 
 bool use_nsholder_ = false;
 char* nsholder_mnt_ns_ = nullptr;
@@ -91,11 +92,16 @@ const char* ReadMagiskTmp() {
     return magisk_tmp;
 }
 
-void EnsureSeparatedNamespace(jint* mountMode) {
+// Maybe change the mount external mode to make sure the new process will call unshare().
+// Returns true if we don't need a new ns for this process
+bool EnsureSeparatedNamespace(jint* mountMode, jboolean bindMountAppDataDirs, jboolean bindMountAppStorageDirs) {
     if (*mountMode == 0) {
-        LOGI("Changed mount mode from NONE to DEFAULT");
+        bool no_need_newns = bindMountAppDataDirs == JNI_FALSE && bindMountAppStorageDirs == JNI_FALSE;
+        LOGI("Changed mount mode from NONE to DEFAULT and %s", no_need_newns ? "skip unshare" : "keep unshare");
         *mountMode = 1;
+        return no_need_newns;
     }
+    return false;
 }
 
 void HideMagisk() {
@@ -232,6 +238,7 @@ void InitProcessState(int uid, bool is_child_zygote) {
 void ClearProcessState() {
     isolated_ = false;
     app_zygote_ = false;
+    no_new_ns_ = false;
 }
 
 bool RegisterHook(const char* name, void* replace, void** backup) {
@@ -327,6 +334,15 @@ int UnshareReplace(int flags) {
     bool cleaned = false;
     if (isolated_ns) {
         cleaned = MaybeSwitchMntNs();
+        if (cleaned && no_new_ns_) {
+            // We're in the "cleaned" ns, don't unshare new ns
+            // isolated process and app zygote uses the same ns with zygote on pre-11
+            // this can be detected by app
+            // https://android-review.googlesource.com/c/platform/frameworks/base/+/1554432
+            // https://cs.android.com/android/_/android/platform/frameworks/base/+/e986bc4cad9b68e1cf4aedfb3b99381cc64d0497
+            if (flags == CLONE_NEWNS) return 0;
+            flags &= ~CLONE_NEWNS;
+        }
     }
     int res = orig_unshare(flags);
     if (res == -1) return res;
@@ -379,7 +395,7 @@ static void forkAndSpecializePre(
         jboolean* bindMountAppStorageDirs) {
     InitProcessState(*_uid, *is_child_zygote);
     if (hide_isolated_) {
-        EnsureSeparatedNamespace(mountExternal);
+        no_new_ns_ = EnsureSeparatedNamespace(mountExternal, *bindMountAppDataDirs, *bindMountAppStorageDirs);
         MaybeInitNsHolder(env);
     }
 }
@@ -399,7 +415,8 @@ static void specializeAppProcessPre(
         jboolean *isTopApp, jobjectArray *pkgDataInfoList, jobjectArray *whitelistedDataInfoList,
         jboolean *bindMountAppDataDirs, jboolean *bindMountAppStorageDirs) {
     InitProcessState(*uid, *startChildZygote);
-    if (hide_isolated_) EnsureSeparatedNamespace(mountExternal);
+    if (hide_isolated_)
+        no_new_ns_ = EnsureSeparatedNamespace(mountExternal, *bindMountAppDataDirs, *bindMountAppStorageDirs);
 }
 
 static void specializeAppProcessPost(JNIEnv *env, jclass clazz) {
