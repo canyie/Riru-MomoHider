@@ -10,7 +10,7 @@ Features:
 | app_zygote_magic | Make a app named "Momo" cannot detect Magisk hide is running. |
 | initrc | Hide the modified traces of init.rc |
 
-Note: Since 0.0.3, all features are disabled by default, you need to create a file under /data/adb/momohider/ to enable it.
+Note: Since 0.0.3, all features are disabled by default, you need to create a file named /data/adb/modules/(lite_)modules/riru_momohider/config/<config name> to enable it.
 
 ## Requirement
 Rooted Android 7.0+ devices with Magisk and [Riru](https://github.com/RikkaApps/Riru).
