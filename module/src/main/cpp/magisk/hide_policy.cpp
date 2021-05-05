@@ -10,7 +10,7 @@
 #include <sys/mount.h>
 #include <unistd.h>
 #include "magiskhide.h"
-#include "../../log.h"
+#include "../log.h"
 
 using namespace std;
 
@@ -53,6 +53,8 @@ void hide_unmount(const char* magisk_tmp) {
     // Unmount dummy skeletons and /sbin links
     targets.push_back(magisk_tmp);
 
+//#define TMPFS_MNT(dir) (strcmp(mentry->mnt_type, "tmpfs") && \
+//strncmp(mentry->mnt_dir, "/" #dir, sizeof("/" #dir) - 1) == 0)
 #define TMPFS_MNT(dir) (mentry->mnt_type == "tmpfs"sv && \
 strncmp(mentry->mnt_dir, "/" #dir, sizeof("/" #dir) - 1) == 0)
 

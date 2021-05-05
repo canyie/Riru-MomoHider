@@ -1,21 +1,22 @@
-//
-// Created by canyie on 2021/1/1.
-//
-
+#include <jni.h>
+#include <sys/types.h>
+#include <riru.h>
+#include <malloc.h>
+#include <cstring>
 #include <cstdlib>
 #include <cerrno>
 #include <cstring>
 #include <malloc.h>
+#include <unistd.h>
 #include <fcntl.h>
 #include <sched.h>
 #include <pthread.h>
 #include <dirent.h>
+#include <xhook.h>
 #include "log.h"
-#include "external/xhook/xhook.h"
-#include "external/riru/riru.h"
-#include "external/magisk/magiskhide.h"
+#include "magisk/magiskhide.h"
 
-const char* module_dir_ = nullptr;
+
 constexpr const char* kSetNs = "setns";
 constexpr const char* kMagicHandleAppZygote = "app_zygote_magic";
 constexpr const char* kMagiskTmp = "magisk_tmp";
@@ -36,10 +37,8 @@ pid_t nsholder_pid_ = -1;
 pid_t (*orig_fork)() = nullptr;
 int (*orig_unshare)(int) = nullptr;
 
-int* riru_allow_unload = nullptr;
-
 void ConfigPath(const char* name, char* out) {
-    snprintf(out, 127, "%s/config/%s", module_dir_, name);
+    snprintf(out, 127, "%s/config/%s", riru_magisk_module_path, name);
 }
 
 bool Exists(const char* name) {
@@ -48,10 +47,6 @@ bool Exists(const char* name) {
     if (access(path, F_OK) == 0) return true;
     LOGD("access %s failed: %s", path, strerror(errno));
     return false;
-}
-
-void AllowUnload() {
-    if (riru_allow_unload) *riru_allow_unload = 1;
 }
 
 int ReadIntAndClose(int fd) {
@@ -108,6 +103,8 @@ void HideMagisk() {
     hide_unmount(magisk_tmp_);
 }
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "EndlessLoop"
 void MaybeInitNsHolder(JNIEnv* env) {
     if (!use_nsholder_) return;
 
@@ -207,6 +204,7 @@ void MaybeInitNsHolder(JNIEnv* env) {
         }
     }
 }
+#pragma clang diagnostic pop
 
 bool MaybeSwitchMntNs() {
     if (!nsholder_mnt_ns_) return false;
@@ -374,37 +372,48 @@ failed = failed || RegisterHook(#NAME, reinterpret_cast<void*>(REPLACE), reinter
     xhook_clear();
 }
 
-void onModuleLoaded() {
-    LOGI("Magisk module dir is %s", module_dir_);
-    magisk_tmp_ = ReadMagiskTmp();
-    LOGI("Magisk temp path is %s", magisk_tmp_);
-    hide_isolated_ = Exists(kIsolated);
-    magic_handle_app_zygote_ = Exists(kMagicHandleAppZygote);
-    use_nsholder_ = Exists(kSetNs);
-    RegisterHooks();
+static int shouldSkipUid(int uid) {
+    // By default (if the module does not provide this function in init), Riru will only call
+    // module functions in "normal app processes" (10000 <= uid % 100000 <= 19999)
+
+    // Provide this function so that the module can control if a specific uid should be skipped
+
+    // Riru 25:
+    // This function is removed for modules which has adapted 25, means forkAndSpecialize and
+    // specializeAppProcess will be called for all uids.
+    return false;
 }
 
-// After Riru v22
 static void forkAndSpecializePre(
-        JNIEnv* env, jclass, jint* _uid, jint* gid, jintArray* gids, jint* runtimeFlags,
-        jobjectArray* rlimits, jint* mountExternal, jstring* seInfo, jstring* niceName,
-        jintArray* fdsToClose, jintArray* fdsToIgnore, jboolean* is_child_zygote,
-        jstring* instructionSet, jstring* appDataDir, jboolean* isTopApp,
-        jobjectArray* pkgDataInfoList,
-        jobjectArray* whitelistedDataInfoList, jboolean* bindMountAppDataDirs,
-        jboolean* bindMountAppStorageDirs) {
-    InitProcessState(*_uid, *is_child_zygote);
+        JNIEnv *env, jclass clazz, jint *uid, jint *gid, jintArray *gids, jint *runtimeFlags,
+        jobjectArray *rlimits, jint *mountExternal, jstring *seInfo, jstring *niceName,
+        jintArray *fdsToClose, jintArray *fdsToIgnore, jboolean *is_child_zygote,
+        jstring *instructionSet, jstring *appDataDir, jboolean *isTopApp, jobjectArray *pkgDataInfoList,
+        jobjectArray *whitelistedDataInfoList, jboolean *bindMountAppDataDirs, jboolean *bindMountAppStorageDirs) {
+    // Called "before" com_android_internal_os_Zygote_nativeForkAndSpecialize in frameworks/base/core/jni/com_android_internal_os_Zygote.cpp
+    // Parameters are pointers, you can change the value of them if you want
+    // Some parameters are not exist is older Android versions, in this case, they are null or 0
+    InitProcessState(*uid, *is_child_zygote);
     if (hide_isolated_) {
         no_new_ns_ = EnsureSeparatedNamespace(mountExternal, *bindMountAppDataDirs, *bindMountAppStorageDirs);
         MaybeInitNsHolder(env);
     }
 }
 
-static void forkAndSpecializePost(JNIEnv*, jclass, jint res) {
+static void forkAndSpecializePost(JNIEnv *env, jclass clazz, jint res) {
+    // Called "after" com_android_internal_os_Zygote_nativeForkAndSpecialize in frameworks/base/core/jni/com_android_internal_os_Zygote.cpp
+    // "res" is the return value of com_android_internal_os_Zygote_nativeForkAndSpecialize
     ClearProcessState();
     if (res == 0) {
+        // In app process
+
+        // When unload allowed is true, the module will be unloaded (dlclose) by Riru
+        // If this modules has hooks installed, DONOT set it to true, or there will be SIGSEGV
+        // This value will be automatically reset to false before the "pre" function is called
         ClearHooks();
-        AllowUnload();
+        riru_set_unload_allowed(true);
+    }else{
+        // In zygote process
     }
 }
 
@@ -414,50 +423,123 @@ static void specializeAppProcessPre(
         jboolean *startChildZygote, jstring *instructionSet, jstring *appDataDir,
         jboolean *isTopApp, jobjectArray *pkgDataInfoList, jobjectArray *whitelistedDataInfoList,
         jboolean *bindMountAppDataDirs, jboolean *bindMountAppStorageDirs) {
+    // Called "before" com_android_internal_os_Zygote_nativeSpecializeAppProcess in frameworks/base/core/jni/com_android_internal_os_Zygote.cpp
+    // Parameters are pointers, you can change the value of them if you want
+    // Some parameters are not exist is older Android versions, in this case, they are null or 0
     InitProcessState(*uid, *startChildZygote);
     if (hide_isolated_)
         no_new_ns_ = EnsureSeparatedNamespace(mountExternal, *bindMountAppDataDirs, *bindMountAppStorageDirs);
 }
 
-static void specializeAppProcessPost(JNIEnv *env, jclass clazz) {
+static void specializeAppProcessPost(
+        JNIEnv *env, jclass clazz) {
+    // Called "after" com_android_internal_os_Zygote_nativeSpecializeAppProcess in frameworks/base/core/jni/com_android_internal_os_Zygote.cpp
+
+    // When unload allowed is true, the module will be unloaded (dlclose) by Riru
+    // If this modules has hooks installed, DONOT set it to true, or there will be SIGSEGV
+    // This value will be automatically reset to false before the "pre" function is called
     ClearProcessState();
     ClearHooks();
-    AllowUnload();
+    riru_set_unload_allowed(true);
 }
 
-int riru_api_version = 0;
-static auto module = RiruVersionedModuleInfo {
-        .moduleApiVersion = RIRU_NEW_MODULE_API_VERSION,
-        .moduleInfo = RiruModuleInfo {
+static void forkSystemServerPre(
+        JNIEnv *env, jclass clazz, uid_t *uid, gid_t *gid, jintArray *gids, jint *runtimeFlags,
+        jobjectArray *rlimits, jlong *permittedCapabilities, jlong *effectiveCapabilities) {
+    // Called "before" com_android_internal_os_Zygote_forkSystemServer in frameworks/base/core/jni/com_android_internal_os_Zygote.cpp
+    // Parameters are pointers, you can change the value of them if you want
+    // Some parameters are not exist is older Android versions, in this case, they are null or 0
+}
+
+static void forkSystemServerPost(JNIEnv *env, jclass clazz, jint res) {
+    // Called "after" com_android_internal_os_Zygote_forkSystemServer in frameworks/base/core/jni/com_android_internal_os_Zygote.cpp
+
+    if (res == 0) {
+        // In system server process
+    } else {
+        // In zygote process
+    }
+}
+
+static void onModuleLoaded() {
+    // Called when this library is loaded and "hidden" by Riru (see Riru's hide.cpp)
+
+    // If you want to use threads, start them here rather than the constructors
+    // __attribute__((constructor)) or constructors of static variables,
+    // or the "hide" will cause SIGSEGV
+    LOGI("Magisk module dir is %s", riru_magisk_module_path);
+    magisk_tmp_ = ReadMagiskTmp();
+    LOGI("Magisk temp path is %s", magisk_tmp_);
+    hide_isolated_ = Exists(kIsolated);
+    magic_handle_app_zygote_ = Exists(kMagicHandleAppZygote);
+    use_nsholder_ = Exists(kSetNs);
+    RegisterHooks();
+}
+
+extern "C" {
+
+int riru_api_version;
+const char *riru_magisk_module_path = nullptr;
+int *riru_allow_unload = nullptr;
+
+static auto module = RiruVersionedModuleInfo{
+        .moduleApiVersion = RIRU_MODULE_API_VERSION,
+        .moduleInfo= RiruModuleInfo{
                 .supportHide = true,
-                .version = RIRU_MODULE_VERSION_CODE,
+                .version = RIRU_MODULE_VERSION,
                 .versionName = RIRU_MODULE_VERSION_NAME,
                 .onModuleLoaded = onModuleLoaded,
-                .shouldSkipUid = nullptr,
                 .forkAndSpecializePre = forkAndSpecializePre,
                 .forkAndSpecializePost = forkAndSpecializePost,
-                .forkSystemServerPre = nullptr,
-                .forkSystemServerPost = nullptr,
+                .forkSystemServerPre = forkSystemServerPre,
+                .forkSystemServerPost = forkSystemServerPost,
                 .specializeAppProcessPre = specializeAppProcessPre,
                 .specializeAppProcessPost = specializeAppProcessPost
         }
 };
 
-EXPORT void* init(Riru* arg) {
-    int core_max_api_version = arg->riruApiVersion;
-    riru_api_version = core_max_api_version <= RIRU_NEW_MODULE_API_VERSION
-                       ? core_max_api_version : RIRU_NEW_MODULE_API_VERSION;
-    if (riru_api_version > 10 && riru_api_version < 25) {
-        // V24 is pre-release version, not supported
-        riru_api_version = 10;
-    }
+#ifndef RIRU_MODULE_LEGACY_INIT
+RiruVersionedModuleInfo *init(Riru *riru) {
+    auto core_max_api_version = riru->riruApiVersion;
+    riru_api_version = core_max_api_version <= RIRU_MODULE_API_VERSION ? core_max_api_version : RIRU_MODULE_API_VERSION;
+    module.moduleApiVersion = riru_api_version;
+
+    riru_magisk_module_path = strdup(riru->magiskModulePath);
     if (riru_api_version >= 25) {
-        module.moduleApiVersion = riru_api_version;
-        riru_allow_unload = arg->allowUnload;
-        module_dir_ = strdup(arg->magiskModulePath);
-        return &module;
-    } else {
-        LOGE("MomoHider requires Riru V25 or above, but current Riru api version is %d", riru_api_version);
+        riru_allow_unload = riru->allowUnload;
     }
-    return nullptr;
+    return &module;
+}
+#else
+RiruVersionedModuleInfo *init(Riru *riru) {
+    static int step = 0;
+    step += 1;
+
+    switch (step) {
+        case 1: {
+            auto core_max_api_version = riru->riruApiVersion;
+            riru_api_version = core_max_api_version <= RIRU_MODULE_API_VERSION ? core_max_api_version : RIRU_MODULE_API_VERSION;
+            if (riru_api_version < 25) {
+                module.moduleInfo.unused = (void *) shouldSkipUid;
+            } else {
+                riru_allow_unload = riru->allowUnload;
+            }
+            if (riru_api_version >= 24) {
+                module.moduleApiVersion = riru_api_version;
+                riru_magisk_module_path = strdup(riru->magiskModulePath);
+                return &module;
+            } else {
+                return (RiruVersionedModuleInfo *) &riru_api_version;
+            }
+        }
+        case 2: {
+            return (RiruVersionedModuleInfo *) &module.moduleInfo;
+        }
+        case 3:
+        default: {
+            return nullptr;
+        }
+    }
+}
+#endif
 }

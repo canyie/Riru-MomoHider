@@ -1,38 +1,24 @@
-apply plugin: 'com.android.application'
+apply plugin: 'com.android.library'
+apply from: file(rootProject.file('module.gradle'))
 
 android {
-    compileSdkVersion 30
-    buildToolsVersion "30.0.2"
-    ndkVersion "21.3.6528147"
+    compileSdkVersion rootProject.ext.targetSdkVersion
     defaultConfig {
-        applicationId "top.canyie.riru_isolatedmagiskhider"
-        minSdkVersion 24
-        targetSdkVersion 30
-        versionCode 1
-        versionName "1.0"
-
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
         externalNativeBuild {
             cmake {
-                cFlags "-Wall -Wextra -Werror -fvisibility=hidden"
-                cppFlags "-std=c++17"
-                arguments "-DRIRU_NEW_MODULE_API_VERSION=$rootProject.ext.riruNewApiVersion",
-                        "-DRIRU_MODULE_VERSION_CODE=$rootProject.ext.versionCode",
-                        "-DRIRU_MODULE_VERSION_NAME:STRING=\"$rootProject.ext.versionName\""
+                arguments "-DMODULE_NAME:STRING=$moduleLibraryName",
+                        "-DRIRU_MODULE_API_VERSION=$moduleRiruApiVersion",
+                        "-DRIRU_MODULE_VERSION=$moduleVersionCode",
+                        "-DRIRU_MODULE_VERSION_NAME:STRING=\"$moduleVersion\"",
+                        "-DRIRU_MODULE_MIN_API_VERSION=$moduleMinRiruApiVersion"
             }
         }
-        ndk {
-            moduleName "riru_momohider"
-            abiFilters  "arm64-v8a", "armeabi-v7a", "x86_64", "x86"
-        }
     }
-
-    buildTypes {
-        release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-        }
+    buildFeatures {
+        prefab true
     }
-
     externalNativeBuild {
         cmake {
             path "src/main/cpp/CMakeLists.txt"
@@ -41,71 +27,154 @@ android {
     }
 }
 
+repositories {
+    mavenLocal()
+}
+
 dependencies {
+    // This is prefab aar which contains "riru.h"
+    // If you want to use older versions of AGP,
+    // you can copy this file from https://github.com/RikkaApps/Riru/blob/master/riru/src/main/cpp/include_riru/riru.h
+
+    // The default version of prefab in AGP has problem to process header only package,
+    // you may have to add android.prefabVersion=1.1.2 in your gradle.properties.
+    // See https://github.com/google/prefab/issues/122
+
+    implementation 'dev.rikka.ndk:riru:25.0.0'
+    implementation 'dev.rikka.ndk.thirdparty:xhook:1.2.0'
 }
 
-def moduleProp = [
-        id: 'riru_momohider',
-        name: 'Riru-MomoHider',
-        author: 'canyie',
-        version: rootProject.ext.versionName,
-        versionCode: rootProject.ext.versionCode,
-        description: 'A Riru module tries to make Magisk more hidden. You can find its source at https://github.com/canyie/Riru-MomoHider',
-        minMagisk: rootProject.ext.minMagisk,
-        api: rootProject.ext.riruApiVersion
-]
+def magiskDir = file("$outDir/magisk_module")
+def isWindows = org.gradle.internal.os.OperatingSystem.current().isWindows()
 
-def tempPath = "$buildDir/intermediates/magisk"
-def tempTemplatePath = "$tempPath/template"
-def nativeDir = "$tempTemplatePath/riru/"
-def nativeDirX86 = "$tempTemplatePath/riru_x86/"
-def nativeAbiToSystemDirMap = ['armeabi-v7a': 'lib', 'arm64-v8a': 'lib64']
-def nativeAbiToSystemDirMapX86 = ['x86': 'lib', 'x86_64': 'lib64']
-def nativeLibName = 'libriru_momohider.so'
-def releasePath = "$buildDir/outputs/magisk"
+import org.apache.tools.ant.filters.FixCrLfFilter
 
-task copyMagiskTemplate(type: Copy) {
-    from file("$rootDir/template")
-    into file(tempTemplatePath)
+import java.nio.file.Files
+import java.security.MessageDigest
 
-    inputs.properties moduleProp
-    doLast {
-        file("$tempTemplatePath/module.prop").withWriter('utf-8') { writer ->
-            moduleProp.each { name, value -> writer.write("$name=$value\n") }
-        }
+static def calcSha256(file) {
+    def md = MessageDigest.getInstance("SHA-256")
+    file.eachByte 4096, { bytes, size ->
+        md.update(bytes, 0, size);
     }
+    return md.digest().encodeHex()
 }
 
-task copyNativeLibs() {
-    doLast {
-        stripReleaseDebugSymbols.outputs.files.each { baseInputDir ->
-            nativeAbiToSystemDirMap.each { origin, to ->
+afterEvaluate {
+    android.libraryVariants.forEach { variant ->
+        def variantCapped = variant.name.capitalize()
+        def variantLowered = variant.name.toLowerCase()
+        def zipName = "${magiskModuleId.replace('_', '-')}-${moduleVersion}-${variantLowered}.zip"
+
+        task("prepareMagiskFiles${variantCapped}") {
+            dependsOn("assemble$variantCapped")
+
+            doFirst {
+                delete { delete magiskDir }
+
                 copy {
-                    from file("$baseInputDir/lib/$origin/$nativeLibName")
-                    into file("$nativeDir/$to")
+                    from "$rootDir/template/magisk_module"
+                    into magiskDir.path
+                    exclude 'riru.sh'
                 }
+
+                copy {
+                    from "$rootDir/template/magisk_module"
+                    into magiskDir.path
+                    include 'riru.sh'
+                    filter { line ->
+                        def replaced = line.replaceAll('%%%RIRU_MODULE_API_VERSION%%%', moduleRiruApiVersion.toString())
+                                .replaceAll('%%%RIRU_MODULE_MIN_API_VERSION%%%', moduleMinRiruApiVersion.toString())
+                                .replaceAll('%%%RIRU_MODULE_MIN_RIRU_VERSION_NAME%%%', moduleMinRiruVersionName)
+                        if (moduleMinRiruApiVersion >= 24) {
+                            replaced.replaceAll('%%%RIRU_MODULE_LIB_NAME%%%', moduleLibraryName)
+                        } else {
+                            replaced.replaceAll('%%%RIRU_MODULE_LIB_NAME%%%', moduleLibraryName)
+                                    .replaceAll('%%%RIRU_MODULE_ID_PRE24%%%', moduleLibraryName.substring("riru_".length()))
+                        }
+                    }
+                    filter(FixCrLfFilter.class,
+                            eol: FixCrLfFilter.CrLf.newInstance("lf"))
+                }
+
+                // Copy .git files manually since gradle exclude it by default
+                Files.copy(file("$rootDir/template/magisk_module/.gitattributes").toPath(), file("${magiskDir.path}/.gitattributes").toPath())
+
+                def moduleProp = [
+                        id         : magiskModuleId,
+                        name       : moduleName,
+                        version    : moduleVersion,
+                        versionCode: moduleVersionCode.toString(),
+                        author     : moduleAuthor,
+                        description: moduleDescription,
+                ]
+
+                def modulePropText = ""
+                moduleProp.each { k, v -> modulePropText += "$k=$v\n" }
+                modulePropText = modulePropText.trim()
+                file("$magiskDir/module.prop").text = modulePropText
             }
 
-            nativeAbiToSystemDirMapX86.each { origin, to ->
+            def nativeOutDir = file("build/intermediates/cmake/$variant.name/obj")
+
+            doLast {
                 copy {
-                    from file("$baseInputDir/lib/$origin/$nativeLibName")
-                    into file("$nativeDirX86/$to")
+                    from "$nativeOutDir"
+                    into "$magiskDir/lib"
+                    exclude "**/*.txt"
+                }
+
+                // generate sha1sum
+                fileTree("$magiskDir").matching {
+                    exclude "README.md", "META-INF"
+                }.visit { f ->
+                    if (f.directory) return
+                    file(f.file.path + ".sha256sum").text = calcSha256(f.file)
                 }
             }
         }
+
+        task("zip${variantCapped}", type: Zip) {
+            dependsOn("prepareMagiskFiles${variantCapped}")
+            from magiskDir
+            archiveName zipName
+            destinationDir outDir
+        }
+
+        task("push${variantCapped}", type: Exec) {
+            dependsOn("assemble${variantCapped}")
+            workingDir outDir
+            def commands = [android.adbExecutable, "push",
+                            zipName,
+                            "/data/local/tmp/"]
+            if (isWindows) {
+                commandLine 'cmd', '/c', commands.join(" ")
+            } else {
+                commandLine commands
+            }
+        }
+
+        task("flash${variantCapped}", type: Exec) {
+            dependsOn("push${variantCapped}")
+            def commands = [android.adbExecutable, "shell", "su", "-c",
+                            "magisk --install-module /data/local/tmp/${zipName}"]
+            if (isWindows) {
+                commandLine 'cmd', '/c', commands.join(" ")
+            } else {
+                commandLine commands
+            }
+        }
+
+        task("flashAndReoot${variantCapped}", type: Exec) {
+            dependsOn("flash${variantCapped}")
+            def commands = [android.adbExecutable, "shell", "reboot"]
+            if (isWindows) {
+                commandLine 'cmd', '/c', commands.join(" ")
+            } else {
+                commandLine commands
+            }
+        }
+
+        variant.assembleProvider.get().finalizedBy("zip${variantCapped}")
     }
-}
-
-task zipMagiskFiles(type: Zip) {
-    from file(tempTemplatePath)
-    destinationDir file(releasePath)
-    baseName 'Riru-MomoHider'
-}
-
-task assembleMagiskRelease(type: GradleBuild, dependsOn: build) {
-    tasks = [
-            'copyMagiskTemplate',
-            'copyNativeLibs',
-            'zipMagiskFiles'
-    ]
 }
