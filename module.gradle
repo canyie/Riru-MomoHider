@@ -1,0 +1,12 @@
+ext {
+    moduleLibraryName = "riru_momohider"
+    moduleMinRiruApiVersion = 9
+    moduleMinRiruVersionName = "v22.0"
+    moduleRiruApiVersion = 25
+    magiskModuleId = "riru_momohider"
+    moduleName = "Riru-MomoHider"
+    moduleAuthor = "canyie"
+    moduleDescription = "A Riru module tries to make Magisk more hidden. You can find its source at https://github.com/canyie/Riru-MomoHider"
+    moduleVersion = "0.0.6"
+    moduleVersionCode = 6
+}
