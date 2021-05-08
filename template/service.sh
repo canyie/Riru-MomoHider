@@ -39,10 +39,10 @@ reset_flash_recovery() {
   [ -f "$FLASH_RECOVERY" ] || return
 
   # Skip if there is the state set for the service
-  [ "$(getprop 'init.svc.recovery' 2>/dev/null)" = "" ] || return
+  [ "$(getprop 'init.svc.flash_recovery' 2>/dev/null)" = "" ] || return
 
   # Set a "fake" state for the service
-  resetprop 'init.svc.recovery' 'stopped'
+  resetprop 'init.svc.flash_recovery' 'stopped'
 }
 
 grep_service_name() {
