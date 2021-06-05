@@ -184,6 +184,9 @@ void MaybeInitNsHolder(JNIEnv* env) {
         // or, we can use the "fdsToIgnore" argument, but for usap, forkApp() haven't the argument.
         // To keep it simple, just let fd not opened in zygote
         for (;;) {
+            // Note: SIGSTOP can't stop us here when magisk hide is enabled
+            // I think the magisk hiding catches our SIGSTOP and not handle it properly (didn't resend the signal)
+            // raise(SIGSTOP);
             pause();
             LOGW("nsholder wakes up unexpectedly, sleep again");
         }

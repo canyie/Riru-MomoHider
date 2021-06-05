@@ -5,15 +5,51 @@ Many applications now detect Magisk for security, Magisk provided "Magisk Hide" 
 Features:
 | Config name | Description |
 |  ----  | ----  |
-| isolated | Apply Magisk Hide for isolated process and app zygotes. This feature is deprecated because it will unmount Magisk modified files for every isolated processes, and the unmounting time cannot be well controlled, which may cause some modules to not work. [Magisk Alpha](https://github.com/vvb2060/magisk/tree/alpha) or the latest Magisk canary + [Riru-Unshare](https://github.com/vvb2060/riru-unshare) is recommended.|
+| isolated | Apply Magisk Hide for isolated process and app zygotes. This feature is deprecated because it will unmount Magisk modified files for every isolated processes, and the unmounting time cannot be well controlled, which may cause some modules to not work. For almost apps, [Magisk Alpha](https://github.com/vvb2060/magisk/tree/alpha) or the latest Magisk canary + [Riru-Unshare](https://github.com/vvb2060/riru-unshare) is enough.|
 | setns | Faster new way to hide Magisk in isolated processes. Requires config "isolated" is enabled. |
 | app_zygote_magic | Make a app named "Momo" cannot detect Magisk hide is running. |
 | initrc | Hide the modified traces of init.rc |
 
-Note: Since 0.0.3, all features are disabled by default, you need to create a file named /data/adb/modules/(lite_)modules/riru_momohider/config/<config name> to enable it.
+Note: Since 0.0.3, all features are disabled by default, you need to create a file named `/data/adb/(lite_)modules/riru_momohider/config/<config name>` to enable it.
 
 ## Requirement
-Rooted Android 7.0+ devices with Magisk and [Riru](https://github.com/RikkaApps/Riru).
+Rooted Android 7.0+ devices with Magisk and [Riru](https://github.com/RikkaApps/Riru) V25+.
+
+## Test
+[Momo](https://www.coolapk.com/apk/io.github.vvb2060.mahoshojo) is the strongest detection app known.
+
+## Troubleshoot
+### Find the "config dir"
+The really config dir is `$MODULES/riru_momohider/config`. For magisk lite, the `$MODULES` is `/data/adb/lite_modules`; For the original and almost everything, the `$MODULES` is `/data/adb/modules`.
+
+If the module doesn't work, please check the config dir first. You should see a file called magisk_tmp under the config dir.
+
+### Momo shows "environment is broken, service not responding"
+Please check your "overlay modules" first. Iterate through $MODULES and check each of its subfolders. For overlay modules, you should see `system/vendor/overlay` or `system/product/overlay` under it.
+
+If you can't find any overlay modules, please go to the "without overlay modules" section.
+#### With overlay modules
+1. Check your android version. For Android < 10, [Magisk Alpha](https://github.com/vvb2060/magisk/tree/alpha) or the latest Magisk canary + [Riru-Unshare](https://github.com/vvb2060/riru-unshare) is almost enough. After installing the recommended things, you can turn off `isolated` and try again.
+2. Disable overlay modules if possible. Or, we can't support this case yet.
+3. Try again. If the problem not solved, please try the "without overlay modules" section.
+
+Note: We needs more info to try to support overlay modules, please file a issue with the full log and stacktrace to help me to solve it even if you have solved the problem.
+
+#### Without overlay modules
+1. Turn on `setns` and try again.
+2. If the problem not solved, please file a bug with your device info and full log.
+
+### Momo still shows "environment is modified"
+MomoHider only hide "MagiskHide is enabled", "Found su file", "Found Magisk" and "init.rc is modified" for momo. If you not see these, this is not our problem, please hide it yourself.
+
+But if you see these after enabling these features... please check the following steps:
+1. Try run `magiskhide exec which su`, if you see something found, this usually indicates that there are other superuser programs in your system that cause magiskhide not work properly. Please remove other superuser programs.
+2. Try installing [MagiskDetector](https://github.com/vvb2060/MagiskDetector), if you see "magiskhide not working", then report to Magisk.
+3. Report to me with your device info and logs.
+
+There is our suggestion:
+1. Always keep SELinux is enforcing and make sure any sepolicy rules is necessary.
+2. Use modern Xposed framework implementations (like [LSPosed](https://github.com/LSPosed/LSPosed) or [Dreamland](https://github.com/canyie/Dreamland) ) and do not use "global mode", only enables Xposed for actually needed apps.
 
 ## Build
 Run gradle task :module:assembleMagiskRelease from Android Studio or command line, magisk module zip will be saved to module/build/outputs/magisk/.
