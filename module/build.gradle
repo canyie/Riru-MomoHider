@@ -46,7 +46,7 @@ dependencies {
 
 def moduleProp = [
         id: 'riru_momohider',
-        name: 'Riru-MomoHider',
+        name: 'Riru - MomoHider',
         author: 'canyie',
         version: rootProject.ext.versionName,
         versionCode: rootProject.ext.versionCode,
@@ -103,7 +103,7 @@ task copyNativeLibs() {
 task zipMagiskFiles(type: Zip) {
     from file(tempTemplatePath)
     destinationDir file(releasePath)
-    baseName 'Riru-MomoHider'
+    baseName 'Riru - MomoHider'
 }
 
 task assembleMagiskRelease(type: GradleBuild, dependsOn: build) {
