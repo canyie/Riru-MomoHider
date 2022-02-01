@@ -447,6 +447,7 @@ static auto module = RiruVersionedModuleInfo {
 };
 
 EXPORT void* init(Riru* arg) {
+    RIRU_MODULE_VERSION_NAME;
     int core_max_api_version = arg->riruApiVersion;
     riru_api_version = core_max_api_version <= RIRU_NEW_MODULE_API_VERSION
                        ? core_max_api_version : RIRU_NEW_MODULE_API_VERSION;
