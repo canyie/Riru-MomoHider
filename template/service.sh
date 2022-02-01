@@ -11,7 +11,12 @@ INITRC_NAME="init.rc"
 [ -f "/init.rc" ] || INITRC_NAME="system/etc/init/hw/init.rc"
 
 INITRC="/$INITRC_NAME"
+
+# First try SAR path
 MAGISKRC="$MAGISK_TMP/.magisk/rootdir/$INITRC_NAME"
+
+# SAR path not found = Rootfs, Magisk modifies the init.rc file directly
+[ -f "$MAGISKRC" ] || MAGISKRC=$INITRC
 
 trim() {
   trimmed=$1
