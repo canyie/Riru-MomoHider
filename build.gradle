@@ -31,8 +31,8 @@ task clean(type: Delete) {
 }
 
 ext {
-    versionCode = 7
-    versionName = '0.0.7'
+    versionCode = 8
+    versionName = '0.0.8'
     minMagisk = 20400
     riruApiVersion = 5 // For Riru v21
     riruNewApiVersion = 25 // For Riru v22+
