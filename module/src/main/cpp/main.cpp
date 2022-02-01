@@ -7,13 +7,15 @@
 #include <cstring>
 #include <malloc.h>
 #include <fcntl.h>
+#include <unistd.h>
 #include <sched.h>
 #include <pthread.h>
 #include <dirent.h>
+#include <jni.h>
+#include <xhook.h>
 #include "log.h"
-#include "external/xhook/xhook.h"
-#include "external/riru/riru.h"
 #include "external/magisk/magiskhide.h"
+#include "external/riru/riru.h"
 
 const char* module_dir_ = nullptr;
 constexpr const char* kSetNs = "setns";
