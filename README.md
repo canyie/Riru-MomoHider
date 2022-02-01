@@ -1,4 +1,11 @@
 # Riru - MomoHider (aka IsolatedMagiskHider)
+## Deprecation Notice
+Hi, today is 2022/2/1, happy Chinese new year! 
+
+One year ago, I made this project because my bank app detected the device is rooted and reject to run. Initially I just want to help others so I made this public. But in the past year, things are not going the way I want -- someone just downloads my module, changes the author and claim it's their work; more seriously, my module with unknown changes was built into a cheat program. Finally my kindness ended up being a tool for outlaws. So, I chose to develop a new hide module "Shamiko" with other developers in the LSPosed team. The new module will only support Zygisk, and provides more functionality than MagiskHide. I believe the module will be the complete solution if you want to use MagiskHide on Magisk v24+! But, To keep things from getting out of hand again, the new module will NOT open source, and rejects any modification. 
+
+We expect to officially release Shamiko on February 2nd. [Click here to download Shamiko.](https://lsposed.github.io/)
+
 ## Background
 Many applications now detect Magisk for security, Magisk provided "Magisk Hide" to hide the modified traces but not completely hidden, magisk still can be detected by [MagiskDetector](https://github.com/vvb2060/MagiskDetector). This module tries to make it more hidden.
 
@@ -53,6 +60,10 @@ There is our suggestion:
 
 ## Build
 Run gradle task :module:assembleMagiskRelease from Android Studio or command line, magisk module zip will be saved to module/build/outputs/magisk/.
+
+## Create your own MOD
+Welcome to create mod of this project! But, this project is under the GPL V3 License. So please, do NOT make a mod that just changes the author to yourself, and make the source code of your mod is public to your users. Note, just release a patch but not release the complete source code is NOT enough, if you want to ask why, please ask the Free Software Foundation, not me. 
+https://www.gnu.org/licenses/gpl-faq.en.html#DistributingSourceIsInconvenient
 
 ## Discussion
 - [QQ Group: 949888394](https://shang.qq.com/wpa/qunwpa?idkey=25549719b948d2aaeb9e579955e39d71768111844b370fcb824d43b9b20e1c04)
