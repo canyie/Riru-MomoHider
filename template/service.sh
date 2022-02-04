@@ -5,10 +5,13 @@ DATA_DIR="$MODDIR/config"
 [ -f "$DATA_DIR/initrc" ] || exit 0
 
 MAGISK_TMP=$(magisk --path) || MAGISK_TMP="/sbin"
-INITRC_NAME="init.rc"
 
-# Android 11's new init.rc
-[ -f "/init.rc" ] || INITRC_NAME="system/etc/init/hw/init.rc"
+# First try Android 11's new init.rc since some devices use the new path but still have the legacy init.rc file
+# https://github.com/topjohnwu/Magisk/pull/4836
+INITRC_NAME="system/etc/init/hw/init.rc"
+
+# legacy init.rc (Android 10 and older)
+[ -f "/$INITRC_NAME" ] || INITRC_NAME="init.rc"
 
 INITRC="/$INITRC_NAME"
 
