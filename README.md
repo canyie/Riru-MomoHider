@@ -23,7 +23,7 @@ Note: Since 0.0.3, all features are disabled by default, you need to create a fi
 Rooted Android 7.0+ devices with Magisk and [Riru](https://github.com/RikkaApps/Riru) V25+.
 
 ## Test
-[Momo](https://t.me/magiskalpha/379) is the strongest detection app known.
+[Momo](https://t.me/magiskalpha/491) is the strongest detection app known.
 
 ## Troubleshoot
 ### Find the "config dir"
