@@ -40,10 +40,10 @@ grep_flash_recovery() {
 reset_flash_recovery() {
   FLASH_RECOVERY=$(grep_flash_recovery) || return
 
-  # Skip if the flash_recovery not removed by Magisk
+  # Skip if the flash_recovery service was not removed by Magisk
   grep -qxF "service flash_recovery /system/bin/xxxxx" "$MAGISKRC" || return
 
-  # Skip if the install-recovery.sh not exist
+  # Skip if the install-recovery.sh does not exist
   [ -f "$FLASH_RECOVERY" ] || return
 
   # Skip if there is the state set for the service

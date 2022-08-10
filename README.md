@@ -14,7 +14,7 @@ Features:
 |  ----  | ----  |
 | isolated | Apply Magisk Hide for isolated process and app zygotes. This feature is deprecated because it will unmount Magisk modified files for every isolated processes, and the unmounting time cannot be well controlled, which may cause some modules to not work. For almost apps, [Magisk Alpha](https://github.com/vvb2060/magisk/tree/alpha) or the latest Magisk canary + [Riru-Unshare](https://github.com/vvb2060/riru-unshare) is enough.|
 | setns | Faster new way to hide Magisk in isolated processes. Requires config "isolated" is enabled. |
-| app_zygote_magic | Make a app named "Momo" cannot detect Magisk hide is running. |
+| app_zygote_magic | Make "Momo" (a root detector app) cannot detect Magisk hide is running. |
 | initrc | Hide the modified traces of init.rc |
 
 Note: Since 0.0.3, all features are disabled by default, you need to create a file named `/data/adb/(lite_)modules/riru_momohider/config/<config name>` to enable it.
@@ -23,11 +23,15 @@ Note: Since 0.0.3, all features are disabled by default, you need to create a fi
 Rooted Android 7.0+ devices with Magisk and [Riru](https://github.com/RikkaApps/Riru) V25+.
 
 ## Test
-[Momo](https://t.me/magiskalpha/491) is the strongest detection app known.
+[Momo](https://t.me/s/magiskalpha/517) is the strongest detection app known.
+
+See also: [MagiskKiller](https://github.com/canyie/MagiskKiller) [MagiskDetector](https://github.com/vvb2060/MagiskDetector) [XposedDetector](https://github.com/vvb2060/XposedDetector) [ApplistDetector](https://github.com/Dr-TSNG/ApplistDetector)
+
+I have studied MagiskHide and found some issues. My module cannot deal with them. I suggest you updating Magisk and use other ways to hide root. Staying on an old unsupported Magisk version is meaningless. Stop cheating yourself.
 
 ## Troubleshoot
 ### Find the "config dir"
-The really config dir is `$MODULES/riru_momohider/config`. For magisk lite, the `$MODULES` is `/data/adb/lite_modules`; For the original and almost everything, the `$MODULES` is `/data/adb/modules`.
+The really config dir is `$MODULES/riru_momohider/config`. For Magisk-Lite, the `$MODULES` is `/data/adb/lite_modules`; For the original and other forks, the `$MODULES` is `/data/adb/modules`.
 
 If the module doesn't work, please check the config dir first. You should see a file called magisk_tmp under the config dir.
 
