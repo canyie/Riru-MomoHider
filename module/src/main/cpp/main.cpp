@@ -17,6 +17,8 @@
 #include "external/magisk/magiskhide.h"
 #include "external/riru/riru.h"
 
+#define USE_NEW_APP_ZYGOTE_MAGIC 1
+
 const char* module_dir_ = nullptr;
 constexpr const char* kSetNs = "setns";
 constexpr const char* kMagicHandleAppZygote = "app_zygote_magic";
@@ -31,6 +33,8 @@ bool isolated_ = false;
 bool app_zygote_ = false;
 bool no_new_ns_ = false;
 
+jstring* nice_name_ = nullptr;
+
 bool use_nsholder_ = false;
 char* nsholder_mnt_ns_ = nullptr;
 pid_t nsholder_pid_ = -1;
@@ -39,6 +43,12 @@ pid_t (*orig_fork)() = nullptr;
 int (*orig_unshare)(int) = nullptr;
 
 int* riru_allow_unload = nullptr;
+
+#if 0
+void* DoNothing(void*) {
+    return nullptr;
+}
+#endif
 
 void ConfigPath(const char* name, char* out) {
     snprintf(out, 127, "%s/config/%s", module_dir_, name);
@@ -110,6 +120,22 @@ void HideMagisk() {
     hide_unmount(magisk_tmp_);
 }
 
+void SetProcessName(JNIEnv* env, jstring name) {
+    jclass Process = env->FindClass("android/os/Process");
+    jmethodID setArgV0 = env->GetStaticMethodID(Process, "setArgV0", "(Ljava/lang/String;)V");
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        LOGW("Process.setArgV0(String) not found");
+    } else {
+        env->CallStaticVoidMethod(Process, setArgV0, name);
+        if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+            LOGW("Process.setArgV0(String) threw exception");
+        }
+    }
+    env->DeleteLocalRef(Process);
+}
+
 void MaybeInitNsHolder(JNIEnv* env) {
     if (!use_nsholder_) return;
 
@@ -159,20 +185,8 @@ void MaybeInitNsHolder(JNIEnv* env) {
         // Change process name
         {
             jstring name = env->NewStringUTF(sizeof(void*) == 8 ? "nsholder64" : "nsholder32");
-            jclass Process = env->FindClass("android/os/Process");
-            jmethodID setArgV0 = env->GetStaticMethodID(Process, "setArgV0", "(Ljava/lang/String;)V");
-            if (env->ExceptionCheck()) {
-                env->ExceptionClear();
-                LOGW("Process.setArgV0(String) not found");
-            } else {
-                env->CallStaticVoidMethod(Process, setArgV0, name);
-                if (env->ExceptionCheck()) {
-                    env->ExceptionClear();
-                    LOGW("Process.setArgV0(String) threw exception");
-                }
-            }
+            SetProcessName(env, name);
             env->DeleteLocalRef(name);
-            env->DeleteLocalRef(Process);
         }
 
         // We're in the "cleaned" ns, notify the zygote we're ready and stop us
@@ -244,6 +258,7 @@ void ClearProcessState() {
     isolated_ = false;
     app_zygote_ = false;
     no_new_ns_ = false;
+    nice_name_ = nullptr;
 }
 
 bool RegisterHook(const char* name, void* replace, void** backup) {
@@ -276,10 +291,11 @@ failed = failed || RegisterHook(#NAME, reinterpret_cast<void*>(orig_##NAME), nul
     xhook_clear();
 }
 
+#if !USE_NEW_APP_ZYGOTE_MAGIC
 pid_t MagicHandleAppZygote() {
     LOGI("Magic handling app zygote");
-    // App zygote, fork new process and exit current process to make getppid() returns init
-    // This makes some detection not working
+    // App zygote, fork a new process to run it (after forking magiskhide detachs)
+    // This makes some detection not working (but also can be easily detected)
     pid_t pid = orig_fork();
     if (pid > 0) {
         // parent
@@ -292,10 +308,12 @@ pid_t MagicHandleAppZygote() {
     }
     return pid;
 }
+#endif
 
 pid_t ForkReplace() {
     int read_fd = -1, write_fd = -1;
 
+#if !USE_NEW_APP_ZYGOTE_MAGIC
     if (app_zygote_ && magic_handle_app_zygote_) {
         int pipe_fd[2];
         if (pipe(pipe_fd) == -1) {
@@ -305,31 +323,37 @@ pid_t ForkReplace() {
             write_fd = pipe_fd[1];
         }
     }
-
+#endif
     pid_t pid = orig_fork();
 
     if (pid < 0) {
+#if !USE_NEW_APP_ZYGOTE_MAGIC
         // fork() failed, clean up
         if (read_fd != -1)
             close(read_fd);
         if (write_fd != -1)
             close(write_fd);
+#endif
     } else if (pid == 0) {
         // child process
         // Do not hide here because the namespace not separated
         in_child_ = true;
+#if !USE_NEW_APP_ZYGOTE_MAGIC
         if (read_fd != -1 && write_fd != -1) {
             close(read_fd);
             pid_t new_pid = MagicHandleAppZygote();
             WriteIntAndClose(write_fd, new_pid);
         }
+#endif
     } else {
+#if !USE_NEW_APP_ZYGOTE_MAGIC
         // parent process
         if (read_fd != -1 && write_fd != -1) {
             close(write_fd);
             pid = ReadIntAndClose(read_fd);
             LOGI("Zygote received new substitute pid %d", pid);
         }
+#endif
     }
     return pid;
 }
@@ -399,13 +423,36 @@ static void forkAndSpecializePre(
         jobjectArray* whitelistedDataInfoList, jboolean* bindMountAppDataDirs,
         jboolean* bindMountAppStorageDirs) {
     InitProcessState(*_uid, *is_child_zygote);
+    nice_name_ = niceName;
     if (hide_isolated_) {
         no_new_ns_ = EnsureSeparatedNamespace(mountExternal, *bindMountAppDataDirs, *bindMountAppStorageDirs);
         MaybeInitNsHolder(env);
     }
 }
 
-static void forkAndSpecializePost(JNIEnv*, jclass, jint res) {
+static void forkAndSpecializePost(JNIEnv* env, jclass, jint res) {
+#if USE_NEW_APP_ZYGOTE_MAGIC
+    if (res == 0 && app_zygote_ && magic_handle_app_zygote_ && nice_name_ && *nice_name_) {
+        // forkAndSpecialize() changed the name of the current thread, not the process
+        // For normal processes, the process name will be changed in ZygoteConnection.handleChildProc()
+        // And use binder to communicate with system_server, which will create a binder thread pool.
+        // This triggers MagiskHide to detach and unmount Magisk filesystems.
+        // But for App Zygotes, after handleChildProc() there is no thread to start (VM daemon threads had started before)
+        // So MagiskHide won't detach and won't unmount Magisk.
+        // In this case, we manually set process name, and the start of VM daemon threads will trigger MagiskHide.
+        // We only check this because app zygote won't be started with USAP.
+        SetProcessName(env, *nice_name_);
+#if 0
+        // Just in case some ROMs have broken art implementation that won't start daemon threads...
+        pthread_t th;
+        int r = pthread_create(&th, nullptr, DoNothing, nullptr);
+        if (r == 0)
+            r = pthread_join(th, nullptr);
+        if (r)
+            LOGE("Failed to create/join thread for app zygote");
+#endif
+    }
+#endif
     ClearProcessState();
     if (res == 0) {
         ClearHooks();
